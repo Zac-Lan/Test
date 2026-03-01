@@ -11,31 +11,44 @@
   <!-- 引入 Babel 以便瀏覽器即時編譯 JSX 語法 -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-  <!-- 使用 Import Map 設定 ES Modules 來源 (無需打包工具即可使用 import) -->
+  <!-- 使用 Import Map 設定 ES Modules 來源 -->
   <script type="importmap">
     {
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "lucide-react": "https://esm.sh/lucide-react@0.294.0?external=react"
+        "lucide-react": "https://esm.sh/lucide-react@0.294.0?external=react",
+        "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
       }
     }
   </script>
   
   <style>
-    /* 隱藏滾動條但保留滾動功能 */
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    /* 確保字體平滑 */
     body { -webkit-font-smoothing: antialiased; }
+    
+    /* 強制鎖定視窗高度，解決手機瀏覽器網址列縮放遮擋底部的問題 */
+    html, body {
+      height: 100dvh;
+      width: 100vw;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #f3f4f6;
+    }
+    #root {
+      height: 100%;
+      width: 100%;
+    }
   </style>
 </head>
 <body class="bg-gray-100 overflow-hidden">
   
-  <!-- React 應用程式的掛載點 -->
   <div id="root"></div>
 
-  <!-- 注意：type 必須是 text/babel，並加上 data-type="module" 才能使用 ES Modules -->
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect } from 'react';
     import { createRoot } from 'react-dom/client';
@@ -45,30 +58,26 @@
       PlaneLanding, Bed, Calendar, MapPin, Save, X, RotateCcw
     } from 'lucide-react';
 
-    // --- 自訂 Hook：用於本地儲存 (Local Storage) ---
-    function useLocalStorage(key, initialValue) {
-      const [storedValue, setStoredValue] = useState(() => {
-        try {
-          const item = window.localStorage.getItem(key);
-          return item ? JSON.parse(item) : initialValue;
-        } catch (error) {
-          console.error("讀取 LocalStorage 失敗:", error);
-          return initialValue;
-        }
-      });
+    // --- Firebase 雲端環境設定 ---
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+    import { getFirestore, doc, onSnapshot, setDoc } from 'firebase/firestore';
 
-      useEffect(() => {
-        try {
-          window.localStorage.setItem(key, JSON.stringify(storedValue));
-        } catch (error) {
-          console.error("寫入 LocalStorage 失敗:", error);
-        }
-      }, [key, storedValue]);
-
-      return [storedValue, setStoredValue];
+    let app, auth, db, appId;
+    const isCloudAvailable = typeof __firebase_config !== 'undefined';
+    if (isCloudAvailable) {
+      try {
+        const firebaseConfig = JSON.parse(__firebase_config);
+        app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+        appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+      } catch (e) {
+        console.error("Firebase 初始化失敗:", e);
+      }
     }
 
-    // --- 初始假資料 (Initial Mock Data) ---
+    // --- 初始預設範例資料 (Initial Mock Data) ---
     const initialTrip = {
       destination: "中國 杭州",
       title: "江南風情：杭州西湖五日遊",
@@ -92,14 +101,7 @@
     };
 
     const initialHotels = [
-      {
-        id: 1,
-        name: "杭州君悅酒店",
-        checkIn: "11/20",
-        checkOut: "11/24",
-        address: "浙江省杭州市上城區湖濱路28號",
-        nights: 4
-      }
+      { id: 1, name: "杭州君悅酒店", checkIn: "11/20", checkOut: "11/24", address: "浙江省杭州市上城區湖濱路28號", nights: 4 }
     ];
 
     const initialNotes = [
@@ -124,30 +126,9 @@
       {
         day: 1,
         activities: [
-          { 
-            id: 101, 
-            time: "18:15", 
-            title: "抵達杭州蕭山國際機場 (HGH)", 
-            desc: "辦理入境手續，提領行李。", 
-            transportToNext: "搭乘機場巴士或預約接機 (約 50 分鐘)", 
-            transportIcon: "bus" 
-          },
-          { 
-            id: 102, 
-            time: "19:30", 
-            title: "飯店 Check-in", 
-            desc: "抵達飯店辦理入住，放下行李稍作休息。", 
-            transportToNext: "步行", 
-            transportIcon: "walk" 
-          },
-          { 
-            id: 103, 
-            time: "20:00", 
-            title: "湖濱步行街 晚餐", 
-            desc: "在西湖邊的商圈尋找特色杭幫菜享用晚餐。", 
-            transportToNext: "", 
-            transportIcon: "" 
-          }
+          { id: 101, time: "18:15", title: "抵達杭州蕭山國際機場 (HGH)", desc: "辦理入境手續，提領行李。", transportToNext: "搭乘機場巴士或預約接機 (約 50 分鐘)", transportIcon: "bus" },
+          { id: 102, time: "19:30", title: "飯店 Check-in", desc: "抵達飯店辦理入住，放下行李稍作休息。", transportToNext: "步行", transportIcon: "walk" },
+          { id: 103, time: "20:00", title: "湖濱步行街 晚餐", desc: "在西湖邊的商圈尋找特色杭幫菜享用晚餐。", transportToNext: "", transportIcon: "" }
         ]
       }
     ];
@@ -168,18 +149,92 @@
     function App() {
       const [activeTab, setActiveTab] = useState('home');
       
-      const [trip, setTrip] = useLocalStorage('travel_app_trip', initialTrip);
-      const [flight, setFlight] = useLocalStorage('travel_app_flight', initialFlight);
-      const [hotels, setHotels] = useLocalStorage('travel_app_hotels', initialHotels);
-      const [notes, setNotes] = useLocalStorage('travel_app_notes', initialNotes);
-      const [packing, setPacking] = useLocalStorage('travel_app_packing', initialPacking);
-      const [summary, setSummary] = useLocalStorage('travel_app_summary', initialSummary);
-      const [itinerary, setItinerary] = useLocalStorage('travel_app_itinerary', initialItinerary);
+      // 使用雲端同步的狀態管理
+      const [user, setUser] = useState(null);
+      const [isDataLoaded, setIsDataLoaded] = useState(false);
+
+      const [trip, setTrip] = useState(initialTrip);
+      const [flight, setFlight] = useState(initialFlight);
+      const [hotels, setHotels] = useState(initialHotels);
+      const [notes, setNotes] = useState(initialNotes);
+      const [packing, setPacking] = useState(initialPacking);
+      const [summary, setSummary] = useState(initialSummary);
+      const [itinerary, setItinerary] = useState(initialItinerary);
+
+      // (1) 登入與身份驗證 (為了雲端綁定)
+      useEffect(() => {
+        if (!isCloudAvailable) {
+          setIsDataLoaded(true);
+          return;
+        }
+        const initAuth = async () => {
+          try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+              await signInAnonymously(auth);
+            }
+          } catch (e) {
+            console.error("Auth 驗證錯誤:", e);
+            setIsDataLoaded(true);
+          }
+        };
+        initAuth();
+        const unsubscribe = onAuthStateChanged(auth, setUser);
+        return () => unsubscribe();
+      }, []);
+
+      // (2) 初次載入雲端資料
+      useEffect(() => {
+        if (!user) return;
+        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'main_sync');
+        
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+          if (docSnap.metadata.hasPendingWrites) {
+            if (!isDataLoaded) setIsDataLoaded(true);
+            return; // 忽略本地尚未上傳完成的變更，防止輸入中斷
+          }
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            // 深層比較更新，避免無限迴圈
+            setTrip(p => JSON.stringify(p) === JSON.stringify(data.trip) ? p : (data.trip || p));
+            setFlight(p => JSON.stringify(p) === JSON.stringify(data.flight) ? p : (data.flight || p));
+            setHotels(p => JSON.stringify(p) === JSON.stringify(data.hotels) ? p : (data.hotels || p));
+            setNotes(p => JSON.stringify(p) === JSON.stringify(data.notes) ? p : (data.notes || p));
+            setPacking(p => JSON.stringify(p) === JSON.stringify(data.packing) ? p : (data.packing || p));
+            setSummary(p => JSON.stringify(p) === JSON.stringify(data.summary) ? p : (data.summary || p));
+            setItinerary(p => JSON.stringify(p) === JSON.stringify(data.itinerary) ? p : (data.itinerary || p));
+          }
+          setIsDataLoaded(true);
+        }, (error) => {
+          console.error("雲端讀取錯誤:", error);
+          setIsDataLoaded(true);
+        });
+
+        return () => unsubscribe();
+      }, [user]);
+
+      // (3) 自動背景存檔到雲端 (Debounce 1.5 秒)
+      useEffect(() => {
+        if (!user || !isDataLoaded) return;
+        const timer = setTimeout(() => {
+          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'main_sync');
+          setDoc(docRef, { trip, flight, hotels, notes, packing, summary, itinerary }, { merge: true })
+            .catch(err => console.error("雲端儲存錯誤:", err));
+        }, 1500);
+
+        return () => clearTimeout(timer);
+      }, [trip, flight, hotels, notes, packing, summary, itinerary, user, isDataLoaded]);
 
       const handleResetData = () => {
-        if (window.confirm("確定要重置所有資料嗎？這將會清除您所有的修改並還原回預設的杭州範例。")) {
-          window.localStorage.clear();
-          window.location.reload();
+        if (window.confirm("確定要重置所有資料嗎？這將會清除雲端的所有修改並還原回預設的杭州範例。")) {
+          setTrip(initialTrip);
+          setFlight(initialFlight);
+          setHotels(initialHotels);
+          setNotes(initialNotes);
+          setPacking(initialPacking);
+          setSummary(initialSummary);
+          setItinerary(initialItinerary);
         }
       };
 
@@ -198,10 +253,7 @@
           if (s.day !== dayToDelete) {
             newSummary.push({ ...s, day: newDayCounter });
             const correspondingItin = itinerary.find(i => i.day === s.day);
-            newItinerary.push({ 
-              day: newDayCounter, 
-              activities: correspondingItin ? correspondingItin.activities : [] 
-            });
+            newItinerary.push({ day: newDayCounter, activities: correspondingItin ? correspondingItin.activities : [] });
             newDayCounter++;
           }
         });
@@ -218,11 +270,9 @@
           title: trip.title,
         });
 
-        // 航班編輯狀態
         const [isEditingFlight, setIsEditingFlight] = useState(false);
         const [editFlightData, setEditFlightData] = useState(flight);
 
-        // 飯店編輯狀態
         const [isEditingHotels, setIsEditingHotels] = useState(false);
         const [editHotelsData, setEditHotelsData] = useState(hotels);
 
@@ -242,14 +292,7 @@
         };
 
         const handleAddHotel = () => {
-          setEditHotelsData([...editHotelsData, {
-            id: Date.now(),
-            name: "",
-            checkIn: "",
-            checkOut: "",
-            address: "",
-            nights: 1
-          }]);
+          setEditHotelsData([...editHotelsData, { id: Date.now(), name: "", checkIn: "", checkOut: "", address: "", nights: 1 }]);
         };
 
         const updateHotelData = (id, field, value) => {
@@ -260,32 +303,24 @@
           setEditHotelsData(editHotelsData.filter(h => h.id !== id));
         };
 
-        // 更新航班資料的輔助函式
         const updateFlightData = (direction, type, field, value) => {
           setEditFlightData(prev => ({
-            ...prev,
-            [direction]: {
-              ...prev[direction],
-              [type]: {
-                ...prev[direction][type],
-                [field]: value
-              }
-            }
+            ...prev, [direction]: { ...prev[direction], [type]: { ...prev[direction][type], [field]: value } }
           }));
         };
 
         const updateFlightBasic = (direction, field, value) => {
-          setEditFlightData(prev => ({
-            ...prev,
-            [direction]: {
-              ...prev[direction],
-              [field]: value
-            }
-          }));
+          setEditFlightData(prev => ({ ...prev, [direction]: { ...prev[direction], [field]: value } }));
         };
 
         return (
-          <div className="h-full overflow-y-auto pb-8 animate-fade-in">
+          <div className="h-full overflow-y-auto pb-8 animate-fade-in relative">
+            
+            {/* 雲端儲存狀態指示 */}
+            <div className="absolute top-4 left-4 z-50 flex items-center bg-black/30 backdrop-blur px-2 py-1 rounded-full text-white/80 text-[10px] font-medium border border-white/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 shadow-[0_0_5px_rgba(52,211,153,0.8)]"></span> 已連接雲端
+            </div>
+
             {/* 封面區域 */}
             <div className="relative h-64 w-full flex-shrink-0 group">
               <img src={trip.coverImage} alt="Cover" className="w-full h-full object-cover" />
@@ -365,7 +400,6 @@
 
                 {isEditingFlight ? (
                   <div className="bg-white p-4 rounded-xl shadow-md border-2 border-sky-300 animate-fade-in space-y-5">
-                    
                     {/* 去程編輯表單 */}
                     <div>
                       <h3 className="text-sm font-bold text-sky-700 mb-2 border-b border-sky-100 pb-1 flex items-center">
@@ -625,7 +659,7 @@
                   onClick={handleResetData}
                   className="text-xs text-gray-400 hover:text-red-500 flex items-center transition-colors"
                 >
-                  <RotateCcw size={14} className="mr-1" /> 恢復預設範例資料 (清除儲存)
+                  <RotateCcw size={14} className="mr-1" /> 恢復預設範例資料 (清除雲端儲存)
                 </button>
               </div>
             </div>
@@ -988,9 +1022,12 @@
         );
       };
 
-      // --- 底部導覽列 (已取消 absolute，改用 flex 正常排版以防行動版遮擋) ---
+      // --- 底部導覽列 ---
       const BottomNav = () => (
-        <div className="w-full bg-white border-t border-gray-200 flex justify-around items-center pt-2 pb-5 sm:pb-4 z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] shrink-0">
+        <div 
+          className="w-full bg-white border-t border-gray-200 flex justify-around items-center pt-2 z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] shrink-0"
+          style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}
+        >
           {[
             { id: 'home', icon: Home, label: '首頁' },
             { id: 'prep', icon: ListTodo, label: '準備' },
@@ -1011,12 +1048,23 @@
         </div>
       );
 
+      // 若資料尚未從雲端下載完成，顯示讀取畫面
+      if (!isDataLoaded) {
+        return (
+          <div className="w-full h-[100dvh] flex items-center justify-center bg-gray-100 font-sans text-gray-900">
+             <div className="flex flex-col items-center gap-4 text-indigo-600 bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100">
+                <Navigation size={40} className="animate-bounce" />
+                <p className="text-sm font-bold opacity-80 tracking-wider">正在同步您的雲端旅程...</p>
+             </div>
+          </div>
+        );
+      }
+
       return (
-        <div className="fixed inset-0 flex items-center justify-center p-0 sm:p-4 font-sans text-gray-900 bg-gray-100">
-          <div className="w-full h-full sm:max-w-[400px] sm:h-[850px] bg-white sm:rounded-[2.5rem] sm:shadow-2xl overflow-hidden relative flex flex-col border-0 sm:border-[8px] sm:border-gray-900">
+        <div className="w-full h-full flex items-center justify-center p-0 sm:p-4 font-sans text-gray-900 bg-gray-100">
+          <div className="w-full h-full sm:max-w-[400px] sm:max-h-[850px] bg-white sm:rounded-[2.5rem] sm:shadow-2xl overflow-hidden relative flex flex-col border-0 sm:border-[8px] sm:border-gray-900">
             <div className="hidden sm:block absolute top-0 inset-x-0 h-6 bg-gray-900 rounded-b-3xl w-40 mx-auto z-50"></div>
             
-            {/* 中間主要內容區 (加上 min-h-0 防止內容撐破外框把導覽列擠下去) */}
             <div className="flex-1 min-h-0 overflow-hidden relative bg-gray-50 flex flex-col">
               {activeTab === 'home' && <HomeTab />}
               {activeTab === 'prep' && <PrepTab />}
@@ -1024,14 +1072,12 @@
               {activeTab === 'itinerary' && <ItineraryTab />}
             </div>
 
-            {/* 導覽列 (使用 shrink-0 固定在 flex container 底部) */}
             <BottomNav />
           </div>
         </div>
       );
     }
 
-    // --- 將 React 渲染到畫面中 ---
     const root = createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
