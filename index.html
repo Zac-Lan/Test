@@ -30,7 +30,6 @@
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     body { -webkit-font-smoothing: antialiased; }
     
-    /* 強制鎖定視窗高度，解決手機瀏覽器網址列縮放遮擋底部的問題 */
     html, body {
       height: 100dvh;
       width: 100vw;
@@ -55,17 +54,15 @@
     import { 
       Home, ListTodo, Map, CalendarDays, Plus, Trash2, CheckSquare, Square, 
       Navigation, Train, Plane, Bus, Car, Footprints, Pencil, PlaneTakeoff, 
-      PlaneLanding, Bed, Calendar, MapPin, Save, X, RotateCcw
+      PlaneLanding, Bed, Calendar, MapPin, Save, X, RotateCcw, LogOut, User, Lock
     } from 'lucide-react';
 
     // --- Firebase 雲端環境設定 ---
     import { initializeApp } from 'firebase/app';
-    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+    import { getAuth, signInWithCustomToken, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
     import { getFirestore, doc, onSnapshot, setDoc } from 'firebase/firestore';
 
-    // 💡 如果您要將 App 部署到 GitHub Pages 並啟用雲端儲存功能，
-    // 請前往 Firebase Console (https://console.firebase.google.com/) 建立專案，
-    // 並將您的 Web 應用程式設定 (firebaseConfig) 貼到下方：
+    // 💡 GitHub Pages 部署請在此填入 Firebase 金鑰
     const myFirebaseConfig = {
       apiKey: "AIzaSyCauUYMMq70Nadu4ahrTBkg5WQ0y5xjN98",
       authDomain: "travel-db-479f6.firebaseapp.com",
@@ -76,8 +73,6 @@
     };
 
     let app, auth, db, appId;
-    
-    // 自動判斷是在預覽環境，還是您自行部屬的 GitHub Pages 環境
     const injectedConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
     const isCustomConfigSet = myFirebaseConfig.apiKey && myFirebaseConfig.apiKey !== "請填入您的_API_KEY";
     const isCloudAvailable = injectedConfig || isCustomConfigSet;
@@ -88,14 +83,13 @@
         app = initializeApp(activeConfig);
         auth = getAuth(app);
         db = getFirestore(app);
-        // 如果是自行部署，給予一個專屬的 App ID 資料夾名稱
         appId = typeof __app_id !== 'undefined' ? __app_id : 'my-custom-travel-app';
       } catch (e) {
         console.error("Firebase 初始化失敗:", e);
       }
     }
 
-    // --- 初始預設範例資料 (Initial Mock Data) ---
+    // --- 初始預設範例資料 ---
     const initialTrip = {
       destination: "中國 杭州",
       title: "江南風情：杭州西湖五日遊",
@@ -104,18 +98,8 @@
     };
 
     const initialFlight = {
-      outbound: {
-        airline: "長榮航空",
-        flightNumber: "BR 758",
-        departure: { airport: "TPE 桃園", time: "16:25", date: "11/20" },
-        arrival: { airport: "HGH 蕭山", time: "18:15", date: "11/20" }
-      },
-      inbound: {
-        airline: "長榮航空",
-        flightNumber: "BR 757",
-        departure: { airport: "HGH 蕭山", time: "19:30", date: "11/24" },
-        arrival: { airport: "TPE 桃園", time: "21:25", date: "11/24" }
-      }
+      outbound: { airline: "長榮航空", flightNumber: "BR 758", departure: { airport: "TPE 桃園", time: "16:25", date: "11/20" }, arrival: { airport: "HGH 蕭山", time: "18:15", date: "11/20" } },
+      inbound: { airline: "長榮航空", flightNumber: "BR 757", departure: { airport: "HGH 蕭山", time: "19:30", date: "11/24" }, arrival: { airport: "TPE 桃園", time: "21:25", date: "11/24" } }
     };
 
     const initialHotels = [
@@ -124,34 +108,27 @@
 
     const initialNotes = [
       { id: 1, text: "確認台胞證效期，並辦理好網卡或漫遊" },
-      { id: 2, text: "下載並綁定好支付寶 (Alipay) 或微信支付" },
-      { id: 3, text: "下載高德地圖與滴滴出行 App" }
+      { id: 2, text: "下載並綁定好支付寶 (Alipay) 或微信支付" }
     ];
 
     const initialPacking = [
       { id: 1, text: "護照與台胞證", packed: false },
-      { id: 2, text: "行動電源 & 充電線", packed: true },
-      { id: 3, text: "好走的運動鞋", packed: false }
+      { id: 2, text: "行動電源 & 充電線", packed: true }
     ];
 
     const initialSummary = [
       { day: 1, date: "11/20 (一)", title: "抵達杭州蕭山機場，前往西湖畔飯店入住" },
-      { day: 2, date: "11/21 (二)", title: "漫步蘇堤與白堤，乘船遊西湖" },
-      { day: 3, date: "11/22 (三)", title: "靈隱寺祈福，龍井茶園品茗" }
+      { day: 2, date: "11/21 (二)", title: "漫步蘇堤與白堤，乘船遊西湖" }
     ];
 
     const initialItinerary = [
       {
-        day: 1,
-        activities: [
-          { id: 101, time: "18:15", title: "抵達杭州蕭山國際機場 (HGH)", desc: "辦理入境手續，提領行李。", transportToNext: "搭乘機場巴士或預約接機 (約 50 分鐘)", transportIcon: "bus" },
-          { id: 102, time: "19:30", title: "飯店 Check-in", desc: "抵達飯店辦理入住，放下行李稍作休息。", transportToNext: "步行", transportIcon: "walk" },
-          { id: 103, time: "20:00", title: "湖濱步行街 晚餐", desc: "在西湖邊的商圈尋找特色杭幫菜享用晚餐。", transportToNext: "", transportIcon: "" }
+        day: 1, activities: [
+          { id: 101, time: "18:15", title: "抵達杭州蕭山國際機場", desc: "提領行李", transportToNext: "機場巴士", transportIcon: "bus" }
         ]
       }
     ];
 
-    // --- 輔助圖示渲染 ---
     const renderTransportIcon = (type) => {
       switch (type) {
         case 'train': return <Train size={16} />;
@@ -163,13 +140,95 @@
       }
     };
 
+    // --- 登入與註冊畫面元件 ---
+    const AuthScreen = ({ onLogin }) => {
+      const [isRegister, setIsRegister] = useState(false);
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+          if (isRegister) {
+            await createUserWithEmailAndPassword(auth, email, password);
+          } else {
+            await signInWithEmailAndPassword(auth, email, password);
+          }
+          // 登入成功由 onAuthStateChanged 處理
+        } catch (err) {
+          let errorMsg = "發生錯誤，請稍後再試";
+          if (err.code === 'auth/email-already-in-use') errorMsg = "此 Email 已經註冊過，請直接登入";
+          if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') errorMsg = "Email 或密碼錯誤";
+          if (err.code === 'auth/weak-password') errorMsg = "密碼長度至少需要 6 個字元";
+          setError(errorMsg);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="w-full h-[100dvh] flex flex-col items-center justify-center p-6 bg-gray-100 font-sans text-gray-900">
+          <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-sm border border-gray-100 relative overflow-hidden">
+            <div className="absolute top-0 inset-x-0 h-2 bg-indigo-600"></div>
+            <div className="flex justify-center mb-6">
+              <div className="bg-indigo-100 p-3 rounded-2xl text-indigo-600">
+                <Map size={32} />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2 text-center">
+              {isRegister ? '註冊旅程帳號' : '登入旅行手冊'}
+            </h2>
+            <p className="text-center text-sm text-gray-500 mb-6">
+              {isRegister ? '建立帳號以共同編輯與檢視這趟旅程' : '請登入您的帳號以繼續'}
+            </p>
+            
+            {error && <div className="bg-red-50 text-red-500 p-3 rounded-xl text-sm mb-4 border border-red-100 text-center font-medium">{error}</div>}
+            
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1 ml-1">電子郵件</label>
+                <div className="relative">
+                  <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input type="email" value={email} onChange={e=>setEmail(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors" placeholder="輸入您的 Email" required />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1 ml-1">密碼</label>
+                <div className="relative">
+                  <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input type="password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors" placeholder="輸入 6 位以上密碼" required />
+                </div>
+              </div>
+              <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors mt-2 shadow-md shadow-indigo-200 flex justify-center">
+                {loading ? <span className="animate-pulse">處理中...</span> : (isRegister ? '註冊並登入' : '登入')}
+              </button>
+            </form>
+
+            <div className="mt-6 text-center">
+              <button onClick={() => { setIsRegister(!isRegister); setError(''); }} className="text-sm text-gray-500 hover:text-indigo-600 font-medium transition-colors">
+                {isRegister ? '已經有帳號了？點此登入' : '還沒有帳號？點此註冊'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     // --- 主程式元件 ---
     function App() {
       const [activeTab, setActiveTab] = useState('home');
       
-      // 使用雲端同步的狀態管理
       const [user, setUser] = useState(null);
+      const [authInitialized, setAuthInitialized] = useState(false);
       const [isDataLoaded, setIsDataLoaded] = useState(false);
+      
+      // 權限判定：是否有管理員權限
+      const [ownerId, setOwnerId] = useState(null);
+      const isAdmin = user && ownerId === user.uid;
 
       const [trip, setTrip] = useState(initialTrip);
       const [flight, setFlight] = useState(initialFlight);
@@ -179,42 +238,50 @@
       const [summary, setSummary] = useState(initialSummary);
       const [itinerary, setItinerary] = useState(initialItinerary);
 
-      // (1) 登入與身份驗證 (為了雲端綁定)
+      // (1) 身份驗證初始化
       useEffect(() => {
         if (!isCloudAvailable) {
+          // 本地開發模擬模式
+          setUser({ uid: 'local-user', email: 'local@test.com' });
+          setAuthInitialized(true);
           setIsDataLoaded(true);
+          setOwnerId('local-user');
           return;
         }
+
         const initAuth = async () => {
           try {
+            // 如果是 Canvas 環境帶有 token，自動登入
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
               await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-              await signInAnonymously(auth);
             }
           } catch (e) {
-            console.error("Auth 驗證錯誤:", e);
-            setIsDataLoaded(true);
+            console.error("Token 登入失敗:", e);
           }
         };
         initAuth();
-        const unsubscribe = onAuthStateChanged(auth, setUser);
+
+        const unsubscribe = onAuthStateChanged(auth, (u) => {
+          setUser(u);
+          setAuthInitialized(true);
+        });
         return () => unsubscribe();
       }, []);
 
-      // (2) 初次載入雲端資料
+      // (2) 載入公開共用的雲端資料
       useEffect(() => {
-        if (!user) return;
-        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'main_sync');
+        if (!user || !isCloudAvailable) return;
+        // 共用路徑：所有帳號都會存取並讀寫同一個文件
+        const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
         
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+        const unsubscribe = onSnapshot(sharedDocRef, (docSnap) => {
           if (docSnap.metadata.hasPendingWrites) {
             if (!isDataLoaded) setIsDataLoaded(true);
-            return; // 忽略本地尚未上傳完成的變更，防止輸入中斷
+            return; 
           }
           if (docSnap.exists()) {
             const data = docSnap.data();
-            // 深層比較更新，避免無限迴圈
+            setOwnerId(data.ownerId); // 記錄誰是創建者(管理員)
             setTrip(p => JSON.stringify(p) === JSON.stringify(data.trip) ? p : (data.trip || p));
             setFlight(p => JSON.stringify(p) === JSON.stringify(data.flight) ? p : (data.flight || p));
             setHotels(p => JSON.stringify(p) === JSON.stringify(data.hotels) ? p : (data.hotels || p));
@@ -222,6 +289,14 @@
             setPacking(p => JSON.stringify(p) === JSON.stringify(data.packing) ? p : (data.packing || p));
             setSummary(p => JSON.stringify(p) === JSON.stringify(data.summary) ? p : (data.summary || p));
             setItinerary(p => JSON.stringify(p) === JSON.stringify(data.itinerary) ? p : (data.itinerary || p));
+          } else {
+            // 第一次載入且文件不存在：目前帳號成為 Admin，並寫入預設資料
+            setOwnerId(user.uid);
+            setDoc(sharedDocRef, {
+              ownerId: user.uid,
+              trip: initialTrip, flight: initialFlight, hotels: initialHotels,
+              notes: initialNotes, packing: initialPacking, summary: initialSummary, itinerary: initialItinerary
+            });
           }
           setIsDataLoaded(true);
         }, (error) => {
@@ -232,27 +307,46 @@
         return () => unsubscribe();
       }, [user]);
 
-      // (3) 自動背景存檔到雲端 (Debounce 1.5 秒)
+      // (3) 自動背景存檔到雲端
       useEffect(() => {
-        if (!user || !isDataLoaded) return;
+        if (!user || !isDataLoaded || !isCloudAvailable) return;
         const timer = setTimeout(() => {
-          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'main_sync');
-          setDoc(docRef, { trip, flight, hotels, notes, packing, summary, itinerary }, { merge: true })
+          const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
+          
+          // 權限區分：Admin 可以存所有欄位，一般人只能存 notes 跟 packing
+          const dataToSave = isAdmin 
+            ? { trip, flight, hotels, notes, packing, summary, itinerary } 
+            : { notes, packing };
+
+          setDoc(sharedDocRef, dataToSave, { merge: true })
             .catch(err => console.error("雲端儲存錯誤:", err));
         }, 1500);
 
         return () => clearTimeout(timer);
-      }, [trip, flight, hotels, notes, packing, summary, itinerary, user, isDataLoaded]);
+      }, [trip, flight, hotels, notes, packing, summary, itinerary, user, isDataLoaded, isAdmin]);
 
-      const handleResetData = () => {
-        if (window.confirm("確定要重置所有資料嗎？這將會清除雲端的所有修改並還原回預設的杭州範例。")) {
-          setTrip(initialTrip);
-          setFlight(initialFlight);
-          setHotels(initialHotels);
-          setNotes(initialNotes);
-          setPacking(initialPacking);
-          setSummary(initialSummary);
-          setItinerary(initialItinerary);
+      // --- 若未登入，顯示登入畫面 ---
+      if (authInitialized && !user) {
+        return <AuthScreen onLogin={setUser} />;
+      }
+
+      // --- 若登入了但資料還沒抓好，顯示 Loading ---
+      if (authInitialized && user && !isDataLoaded) {
+        return (
+          <div className="w-full h-[100dvh] flex items-center justify-center bg-gray-100 font-sans text-gray-900">
+             <div className="flex flex-col items-center gap-4 text-indigo-600 bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100">
+                <Navigation size={40} className="animate-bounce" />
+                <p className="text-sm font-bold opacity-80 tracking-wider">正在載入共享旅程...</p>
+             </div>
+          </div>
+        );
+      }
+
+      // 登出功能
+      const handleLogout = async () => {
+        if (isCloudAvailable && window.confirm("確定要登出嗎？")) {
+          await signOut(auth);
+          setIsDataLoaded(false);
         }
       };
 
@@ -283,10 +377,10 @@
       // 1. 首頁 (目的地簡介、航班、住宿)
       const HomeTab = () => {
         const [isEditingTitle, setIsEditingTitle] = useState(false);
-        const [editTripData, setEditTripData] = useState({
-          destination: trip.destination,
-          title: trip.title,
-        });
+        const [editTripData, setEditTripData] = useState({ destination: trip.destination, title: trip.title });
+
+        const [isEditingDesc, setIsEditingDesc] = useState(false);
+        const [editDescData, setEditDescData] = useState(trip.description);
 
         const [isEditingFlight, setIsEditingFlight] = useState(false);
         const [editFlightData, setEditFlightData] = useState(flight);
@@ -294,60 +388,42 @@
         const [isEditingHotels, setIsEditingHotels] = useState(false);
         const [editHotelsData, setEditHotelsData] = useState(hotels);
 
-        const handleSaveTitle = () => {
-          setTrip({ ...trip, destination: editTripData.destination, title: editTripData.title });
-          setIsEditingTitle(false);
-        };
-
-        const handleSaveFlight = () => {
-          setFlight(editFlightData);
-          setIsEditingFlight(false);
-        };
-
-        const handleSaveHotels = () => {
-          setHotels(editHotelsData);
-          setIsEditingHotels(false);
-        };
-
-        const handleAddHotel = () => {
-          setEditHotelsData([...editHotelsData, { id: Date.now(), name: "", checkIn: "", checkOut: "", address: "", nights: 1 }]);
-        };
-
-        const updateHotelData = (id, field, value) => {
-          setEditHotelsData(editHotelsData.map(h => h.id === id ? { ...h, [field]: value } : h));
-        };
-
-        const removeHotel = (id) => {
-          setEditHotelsData(editHotelsData.filter(h => h.id !== id));
-        };
-
-        const updateFlightData = (direction, type, field, value) => {
-          setEditFlightData(prev => ({
-            ...prev, [direction]: { ...prev[direction], [type]: { ...prev[direction][type], [field]: value } }
-          }));
-        };
-
-        const updateFlightBasic = (direction, field, value) => {
-          setEditFlightData(prev => ({ ...prev, [direction]: { ...prev[direction], [field]: value } }));
-        };
+        const handleSaveTitle = () => { setTrip({ ...trip, destination: editTripData.destination, title: editTripData.title }); setIsEditingTitle(false); };
+        const handleSaveDesc = () => { setTrip({ ...trip, description: editDescData }); setIsEditingDesc(false); };
+        const handleSaveFlight = () => { setFlight(editFlightData); setIsEditingFlight(false); };
+        const handleSaveHotels = () => { setHotels(editHotelsData); setIsEditingHotels(false); };
+        const handleAddHotel = () => { setEditHotelsData([...editHotelsData, { id: Date.now(), name: "", checkIn: "", checkOut: "", address: "", nights: 1 }]); };
+        const updateHotelData = (id, field, value) => { setEditHotelsData(editHotelsData.map(h => h.id === id ? { ...h, [field]: value } : h)); };
+        const removeHotel = (id) => { setEditHotelsData(editHotelsData.filter(h => h.id !== id)); };
+        const updateFlightData = (direction, type, field, value) => { setEditFlightData(prev => ({ ...prev, [direction]: { ...prev[direction], [type]: { ...prev[direction][type], [field]: value } } })); };
+        const updateFlightBasic = (direction, field, value) => { setEditFlightData(prev => ({ ...prev, [direction]: { ...prev[direction], [field]: value } })); };
 
         return (
           <div className="h-full overflow-y-auto pb-8 animate-fade-in relative">
             
-            {/* 雲端儲存狀態指示 */}
-            <div className="absolute top-4 left-4 z-50 flex items-center bg-black/30 backdrop-blur px-2 py-1 rounded-full text-white/80 text-[10px] font-medium border border-white/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 shadow-[0_0_5px_rgba(52,211,153,0.8)]"></span> 已連接雲端
+            {/* 帳號與權限狀態標籤 */}
+            <div className="absolute top-4 left-4 z-50 flex items-center bg-black/40 backdrop-blur px-3 py-1.5 rounded-full text-white/90 text-xs font-medium border border-white/20 shadow-md">
+              {isAdmin ? (
+                <><span className="w-2 h-2 rounded-full bg-emerald-400 mr-2 shadow-[0_0_5px_rgba(52,211,153,0.8)]"></span> 管理員模式</>
+              ) : (
+                <><span className="w-2 h-2 rounded-full bg-amber-400 mr-2 shadow-[0_0_5px_rgba(251,191,36,0.8)]"></span> 訪客預覽模式</>
+              )}
             </div>
+            
+            {/* 登出按鈕 */}
+            <button onClick={handleLogout} className="absolute top-4 right-4 z-50 bg-black/40 backdrop-blur-sm text-white p-2 rounded-full hover:bg-red-500/80 transition-colors shadow-md border border-white/20">
+              <LogOut size={16} />
+            </button>
 
             {/* 封面區域 */}
-            <div className="relative h-64 w-full flex-shrink-0 group">
+            <div className="relative h-64 w-full flex-shrink-0 group mt-0">
               <img src={trip.coverImage} alt="Cover" className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/20"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-16"></div>
               
-              {!isEditingTitle && (
+              {!isEditingTitle && isAdmin && (
                 <button 
                   onClick={() => setIsEditingTitle(true)}
-                  className="absolute top-4 right-4 bg-white/20 backdrop-blur-sm text-white p-2 rounded-full hover:bg-white/40 transition-colors shadow-sm"
+                  className="absolute top-16 right-4 bg-white/20 backdrop-blur-sm text-white p-2 rounded-full hover:bg-white/40 transition-colors shadow-sm"
                 >
                   <Pencil size={18} />
                 </button>
@@ -358,31 +434,15 @@
                   <div className="bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/20 shadow-lg animate-fade-in">
                     <div className="mb-3">
                       <label className="text-xs text-white/80 mb-1 block">目的地</label>
-                      <input 
-                        type="text" 
-                        value={editTripData.destination}
-                        onChange={(e) => setEditTripData({...editTripData, destination: e.target.value})}
-                        className="w-full bg-black/30 border border-white/30 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-white/70"
-                        placeholder="例如：中國 杭州"
-                      />
+                      <input type="text" value={editTripData.destination} onChange={(e) => setEditTripData({...editTripData, destination: e.target.value})} className="w-full bg-black/30 border border-white/30 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-white/70" />
                     </div>
                     <div className="mb-4">
                       <label className="text-xs text-white/80 mb-1 block">旅程標題</label>
-                      <input 
-                        type="text" 
-                        value={editTripData.title}
-                        onChange={(e) => setEditTripData({...editTripData, title: e.target.value})}
-                        className="w-full bg-black/30 border border-white/30 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-white/70"
-                        placeholder="例如：杭州西湖江南風情遊"
-                      />
+                      <input type="text" value={editTripData.title} onChange={(e) => setEditTripData({...editTripData, title: e.target.value})} className="w-full bg-black/30 border border-white/30 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-white/70" />
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={handleSaveTitle} className="flex-1 bg-white text-black py-1.5 rounded text-sm font-bold flex items-center justify-center gap-1">
-                        <Save size={14} /> 儲存
-                      </button>
-                      <button onClick={() => setIsEditingTitle(false)} className="px-3 bg-black/40 border border-white/30 text-white py-1.5 rounded text-sm font-bold flex items-center justify-center gap-1 hover:bg-black/60">
-                        <X size={14} /> 取消
-                      </button>
+                      <button onClick={handleSaveTitle} className="flex-1 bg-white text-black py-1.5 rounded text-sm font-bold flex items-center justify-center gap-1"><Save size={14} /> 儲存</button>
+                      <button onClick={() => setIsEditingTitle(false)} className="px-3 bg-black/40 border border-white/30 text-white py-1.5 rounded text-sm font-bold flex items-center justify-center gap-1 hover:bg-black/60"><X size={14} /> 取消</button>
                     </div>
                   </div>
                 ) : (
@@ -396,21 +456,35 @@
             
             <div className="p-6 space-y-8">
               <section>
-                <h2 className="text-xl font-bold text-gray-800 mb-3 border-b-2 border-indigo-500 inline-block pb-1">旅程簡介</h2>
-                <p className="text-gray-600 leading-relaxed bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                  {trip.description}
-                </p>
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="text-xl font-bold text-gray-800 border-b-2 border-indigo-500 inline-block pb-1">旅程簡介</h2>
+                  {!isEditingDesc && isAdmin && (
+                    <button onClick={() => { setEditDescData(trip.description); setIsEditingDesc(true); }} className="text-gray-400 hover:text-indigo-500 transition-colors bg-white p-1.5 rounded-full shadow-sm border border-gray-100">
+                      <Pencil size={16} />
+                    </button>
+                  )}
+                </div>
+                {isEditingDesc ? (
+                  <div className="bg-white p-4 rounded-xl shadow-md border-2 border-indigo-300 animate-fade-in">
+                    <textarea value={editDescData} onChange={(e) => setEditDescData(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-24 mb-3" />
+                    <div className="flex gap-2">
+                      <button onClick={handleSaveDesc} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-bold flex justify-center items-center gap-1 hover:bg-indigo-700"><Save size={16} /> 儲存</button>
+                      <button onClick={() => setIsEditingDesc(false)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-200">取消</button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-gray-600 leading-relaxed bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    {trip.description}
+                  </p>
+                )}
               </section>
 
               {/* 航班資訊區塊 */}
               <section>
                 <div className="flex justify-between items-center mb-3">
                   <h2 className="text-xl font-bold text-gray-800 border-b-2 border-sky-500 inline-block pb-1">航班資訊</h2>
-                  {!isEditingFlight && (
-                    <button 
-                      onClick={() => { setEditFlightData(flight); setIsEditingFlight(true); }}
-                      className="text-gray-400 hover:text-sky-500 transition-colors bg-white p-1.5 rounded-full shadow-sm border border-gray-100"
-                    >
+                  {!isEditingFlight && isAdmin && (
+                    <button onClick={() => { setEditFlightData(flight); setIsEditingFlight(true); }} className="text-gray-400 hover:text-sky-500 transition-colors bg-white p-1.5 rounded-full shadow-sm border border-gray-100">
                       <Pencil size={16} />
                     </button>
                   )}
@@ -420,105 +494,52 @@
                   <div className="bg-white p-4 rounded-xl shadow-md border-2 border-sky-300 animate-fade-in space-y-5">
                     {/* 去程編輯表單 */}
                     <div>
-                      <h3 className="text-sm font-bold text-sky-700 mb-2 border-b border-sky-100 pb-1 flex items-center">
-                        <PlaneTakeoff size={14} className="mr-1" /> 去程
-                      </h3>
+                      <h3 className="text-sm font-bold text-sky-700 mb-2 border-b border-sky-100 pb-1 flex items-center"><PlaneTakeoff size={14} className="mr-1" /> 去程</h3>
                       <div className="grid grid-cols-2 gap-2 mb-2">
-                        <div>
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">航空公司</label>
-                          <input type="text" value={editFlightData.outbound.airline} onChange={(e) => updateFlightBasic('outbound', 'airline', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" placeholder="長榮航空" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">航班號碼</label>
-                          <input type="text" value={editFlightData.outbound.flightNumber} onChange={(e) => updateFlightBasic('outbound', 'flightNumber', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" placeholder="BR 758" />
-                        </div>
+                        <div><label className="text-[10px] text-gray-500 font-bold block mb-0.5">航空公司</label><input type="text" value={editFlightData.outbound.airline} onChange={(e) => updateFlightBasic('outbound', 'airline', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" /></div>
+                        <div><label className="text-[10px] text-gray-500 font-bold block mb-0.5">航班號碼</label><input type="text" value={editFlightData.outbound.flightNumber} onChange={(e) => updateFlightBasic('outbound', 'flightNumber', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" /></div>
                       </div>
                       <div className="grid grid-cols-3 gap-2 mb-2">
-                        <div className="col-span-1">
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">出發日期</label>
-                          <input type="text" value={editFlightData.outbound.departure.date} onChange={(e) => updateFlightData('outbound', 'departure', 'date', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" placeholder="11/20" />
-                        </div>
-                        <div className="col-span-1">
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">出發地(機場)</label>
-                          <input type="text" value={editFlightData.outbound.departure.airport} onChange={(e) => updateFlightData('outbound', 'departure', 'airport', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" placeholder="TPE 桃園" />
-                        </div>
-                        <div className="col-span-1">
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">起飛時間</label>
-                          <input type="time" value={editFlightData.outbound.departure.time} onChange={(e) => updateFlightData('outbound', 'departure', 'time', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" />
-                        </div>
+                        <div className="col-span-1"><label className="text-[10px] text-gray-500 font-bold block mb-0.5">出發日期</label><input type="text" value={editFlightData.outbound.departure.date} onChange={(e) => updateFlightData('outbound', 'departure', 'date', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" /></div>
+                        <div className="col-span-1"><label className="text-[10px] text-gray-500 font-bold block mb-0.5">出發地(機場)</label><input type="text" value={editFlightData.outbound.departure.airport} onChange={(e) => updateFlightData('outbound', 'departure', 'airport', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" /></div>
+                        <div className="col-span-1"><label className="text-[10px] text-gray-500 font-bold block mb-0.5">起飛時間</label><input type="time" value={editFlightData.outbound.departure.time} onChange={(e) => updateFlightData('outbound', 'departure', 'time', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" /></div>
                       </div>
                       <div className="grid grid-cols-3 gap-2">
                         <div className="col-span-1"></div>
-                        <div className="col-span-1">
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">目的地(機場)</label>
-                          <input type="text" value={editFlightData.outbound.arrival.airport} onChange={(e) => updateFlightData('outbound', 'arrival', 'airport', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" placeholder="HGH 蕭山" />
-                        </div>
-                        <div className="col-span-1">
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">降落時間</label>
-                          <input type="time" value={editFlightData.outbound.arrival.time} onChange={(e) => updateFlightData('outbound', 'arrival', 'time', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" />
-                        </div>
+                        <div className="col-span-1"><label className="text-[10px] text-gray-500 font-bold block mb-0.5">目的地(機場)</label><input type="text" value={editFlightData.outbound.arrival.airport} onChange={(e) => updateFlightData('outbound', 'arrival', 'airport', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" /></div>
+                        <div className="col-span-1"><label className="text-[10px] text-gray-500 font-bold block mb-0.5">降落時間</label><input type="time" value={editFlightData.outbound.arrival.time} onChange={(e) => updateFlightData('outbound', 'arrival', 'time', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-sky-500 outline-none" /></div>
                       </div>
                     </div>
 
                     {/* 回程編輯表單 */}
                     <div>
-                      <h3 className="text-sm font-bold text-orange-700 mb-2 border-b border-orange-100 pb-1 flex items-center">
-                        <PlaneLanding size={14} className="mr-1" /> 回程
-                      </h3>
+                      <h3 className="text-sm font-bold text-orange-700 mb-2 border-b border-orange-100 pb-1 flex items-center"><PlaneLanding size={14} className="mr-1" /> 回程</h3>
                       <div className="grid grid-cols-2 gap-2 mb-2">
-                        <div>
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">航空公司</label>
-                          <input type="text" value={editFlightData.inbound.airline} onChange={(e) => updateFlightBasic('inbound', 'airline', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" placeholder="長榮航空" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">航班號碼</label>
-                          <input type="text" value={editFlightData.inbound.flightNumber} onChange={(e) => updateFlightBasic('inbound', 'flightNumber', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" placeholder="BR 757" />
-                        </div>
+                        <div><label className="text-[10px] text-gray-500 font-bold block mb-0.5">航空公司</label><input type="text" value={editFlightData.inbound.airline} onChange={(e) => updateFlightBasic('inbound', 'airline', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" /></div>
+                        <div><label className="text-[10px] text-gray-500 font-bold block mb-0.5">航班號碼</label><input type="text" value={editFlightData.inbound.flightNumber} onChange={(e) => updateFlightBasic('inbound', 'flightNumber', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" /></div>
                       </div>
                       <div className="grid grid-cols-3 gap-2 mb-2">
-                        <div className="col-span-1">
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">回程日期</label>
-                          <input type="text" value={editFlightData.inbound.departure.date} onChange={(e) => updateFlightData('inbound', 'departure', 'date', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" placeholder="11/24" />
-                        </div>
-                        <div className="col-span-1">
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">出發地(機場)</label>
-                          <input type="text" value={editFlightData.inbound.departure.airport} onChange={(e) => updateFlightData('inbound', 'departure', 'airport', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" placeholder="HGH 蕭山" />
-                        </div>
-                        <div className="col-span-1">
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">起飛時間</label>
-                          <input type="time" value={editFlightData.inbound.departure.time} onChange={(e) => updateFlightData('inbound', 'departure', 'time', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" />
-                        </div>
+                        <div className="col-span-1"><label className="text-[10px] text-gray-500 font-bold block mb-0.5">回程日期</label><input type="text" value={editFlightData.inbound.departure.date} onChange={(e) => updateFlightData('inbound', 'departure', 'date', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" /></div>
+                        <div className="col-span-1"><label className="text-[10px] text-gray-500 font-bold block mb-0.5">出發地(機場)</label><input type="text" value={editFlightData.inbound.departure.airport} onChange={(e) => updateFlightData('inbound', 'departure', 'airport', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" /></div>
+                        <div className="col-span-1"><label className="text-[10px] text-gray-500 font-bold block mb-0.5">起飛時間</label><input type="time" value={editFlightData.inbound.departure.time} onChange={(e) => updateFlightData('inbound', 'departure', 'time', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" /></div>
                       </div>
                       <div className="grid grid-cols-3 gap-2">
                         <div className="col-span-1"></div>
-                        <div className="col-span-1">
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">目的地(機場)</label>
-                          <input type="text" value={editFlightData.inbound.arrival.airport} onChange={(e) => updateFlightData('inbound', 'arrival', 'airport', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" placeholder="TPE 桃園" />
-                        </div>
-                        <div className="col-span-1">
-                          <label className="text-[10px] text-gray-500 font-bold block mb-0.5">降落時間</label>
-                          <input type="time" value={editFlightData.inbound.arrival.time} onChange={(e) => updateFlightData('inbound', 'arrival', 'time', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" />
-                        </div>
+                        <div className="col-span-1"><label className="text-[10px] text-gray-500 font-bold block mb-0.5">目的地(機場)</label><input type="text" value={editFlightData.inbound.arrival.airport} onChange={(e) => updateFlightData('inbound', 'arrival', 'airport', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" /></div>
+                        <div className="col-span-1"><label className="text-[10px] text-gray-500 font-bold block mb-0.5">降落時間</label><input type="time" value={editFlightData.inbound.arrival.time} onChange={(e) => updateFlightData('inbound', 'arrival', 'time', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" /></div>
                       </div>
                     </div>
 
                     <div className="flex gap-2 pt-3 border-t border-sky-100">
-                      <button onClick={handleSaveFlight} className="flex-1 bg-sky-600 text-white py-2 rounded-lg text-sm font-bold flex justify-center items-center gap-1 hover:bg-sky-700 transition-colors">
-                        <Save size={16} /> 儲存航班
-                      </button>
-                      <button onClick={() => setIsEditingFlight(false)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors">
-                        取消
-                      </button>
+                      <button onClick={handleSaveFlight} className="flex-1 bg-sky-600 text-white py-2 rounded-lg text-sm font-bold flex justify-center items-center gap-1 hover:bg-sky-700 transition-colors"><Save size={16} /> 儲存航班</button>
+                      <button onClick={() => setIsEditingFlight(false)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors">取消</button>
                     </div>
                   </div>
                 ) : (
                   <>
-                    {/* 去程航班卡片展示 */}
                     <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-3">
                       <div className="flex justify-between items-center mb-3">
-                        <span className="bg-sky-100 text-sky-700 px-2 py-1 rounded text-xs font-bold flex items-center">
-                          <PlaneTakeoff size={14} className="mr-1" /> 去程
-                        </span>
+                        <span className="bg-sky-100 text-sky-700 px-2 py-1 rounded text-xs font-bold flex items-center"><PlaneTakeoff size={14} className="mr-1" /> 去程</span>
                         <span className="text-xs text-gray-500 font-medium">{flight.outbound.departure.date}</span>
                       </div>
                       <div className="flex justify-between items-center">
@@ -542,12 +563,9 @@
                       </div>
                     </div>
 
-                    {/* 回程航班卡片展示 */}
                     <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                       <div className="flex justify-between items-center mb-3">
-                        <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-bold flex items-center">
-                          <PlaneLanding size={14} className="mr-1" /> 回程
-                        </span>
+                        <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-bold flex items-center"><PlaneLanding size={14} className="mr-1" /> 回程</span>
                         <span className="text-xs text-gray-500 font-medium">{flight.inbound.departure.date}</span>
                       </div>
                       <div className="flex justify-between items-center">
@@ -578,11 +596,8 @@
               <section>
                 <div className="flex justify-between items-center mb-3">
                   <h2 className="text-xl font-bold text-gray-800 border-b-2 border-rose-500 inline-block pb-1">住宿飯店</h2>
-                  {!isEditingHotels && (
-                    <button 
-                      onClick={() => { setEditHotelsData(hotels); setIsEditingHotels(true); }}
-                      className="text-gray-400 hover:text-rose-500 transition-colors bg-white p-1.5 rounded-full shadow-sm border border-gray-100"
-                    >
+                  {!isEditingHotels && isAdmin && (
+                    <button onClick={() => { setEditHotelsData(hotels); setIsEditingHotels(true); }} className="text-gray-400 hover:text-rose-500 transition-colors bg-white p-1.5 rounded-full shadow-sm border border-gray-100">
                       <Pencil size={16} />
                     </button>
                   )}
@@ -593,161 +608,81 @@
                     {editHotelsData.map((h, index) => (
                       <div key={h.id} className="relative bg-rose-50/50 p-3 rounded-lg border border-rose-100">
                         <div className="absolute top-2 right-2">
-                          <button onClick={() => removeHotel(h.id)} className="text-gray-400 hover:text-red-500 transition-colors bg-white rounded-full p-1 shadow-sm">
-                            <Trash2 size={14} />
-                          </button>
+                          <button onClick={() => removeHotel(h.id)} className="text-gray-400 hover:text-red-500 transition-colors bg-white rounded-full p-1 shadow-sm"><Trash2 size={14} /></button>
                         </div>
-                        <h4 className="text-xs font-bold text-rose-700 mb-2 flex items-center gap-1">
-                          <Bed size={14} /> 飯店 {index + 1}
-                        </h4>
+                        <h4 className="text-xs font-bold text-rose-700 mb-2 flex items-center gap-1"><Bed size={14} /> 飯店 {index + 1}</h4>
                         <div className="space-y-2">
-                          <div>
-                            <label className="text-[10px] text-gray-500 font-bold block mb-0.5">飯店名稱</label>
-                            <input type="text" value={h.name} onChange={(e) => updateHotelData(h.id, 'name', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-rose-500 outline-none" placeholder="例如：杭州君悅酒店" />
-                          </div>
+                          <div><label className="text-[10px] text-gray-500 font-bold block mb-0.5">飯店名稱</label><input type="text" value={h.name} onChange={(e) => updateHotelData(h.id, 'name', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-rose-500 outline-none" /></div>
                           <div className="grid grid-cols-3 gap-2">
-                            <div>
-                              <label className="text-[10px] text-gray-500 font-bold block mb-0.5">入住日期</label>
-                              <input type="text" value={h.checkIn} onChange={(e) => updateHotelData(h.id, 'checkIn', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-rose-500 outline-none" placeholder="11/20" />
-                            </div>
-                            <div>
-                              <label className="text-[10px] text-gray-500 font-bold block mb-0.5">退房日期</label>
-                              <input type="text" value={h.checkOut} onChange={(e) => updateHotelData(h.id, 'checkOut', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-rose-500 outline-none" placeholder="11/24" />
-                            </div>
-                            <div>
-                              <label className="text-[10px] text-gray-500 font-bold block mb-0.5">住宿晚數</label>
-                              <input type="number" value={h.nights} onChange={(e) => updateHotelData(h.id, 'nights', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-rose-500 outline-none" placeholder="4" />
-                            </div>
+                            <div><label className="text-[10px] text-gray-500 font-bold block mb-0.5">入住日期</label><input type="text" value={h.checkIn} onChange={(e) => updateHotelData(h.id, 'checkIn', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-rose-500 outline-none" /></div>
+                            <div><label className="text-[10px] text-gray-500 font-bold block mb-0.5">退房日期</label><input type="text" value={h.checkOut} onChange={(e) => updateHotelData(h.id, 'checkOut', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-rose-500 outline-none" /></div>
+                            <div><label className="text-[10px] text-gray-500 font-bold block mb-0.5">住宿晚數</label><input type="number" value={h.nights} onChange={(e) => updateHotelData(h.id, 'nights', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-rose-500 outline-none" /></div>
                           </div>
-                          <div>
-                            <label className="text-[10px] text-gray-500 font-bold block mb-0.5">地址</label>
-                            <input type="text" value={h.address} onChange={(e) => updateHotelData(h.id, 'address', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-rose-500 outline-none" placeholder="例如：浙江省杭州市上城區湖濱路28號" />
-                          </div>
+                          <div><label className="text-[10px] text-gray-500 font-bold block mb-0.5">地址</label><input type="text" value={h.address} onChange={(e) => updateHotelData(h.id, 'address', e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-rose-500 outline-none" /></div>
                         </div>
                       </div>
                     ))}
                     
-                    <button 
-                      onClick={handleAddHotel}
-                      className="w-full py-2 border-2 border-dashed border-rose-200 text-rose-500 rounded-lg text-xs font-bold flex items-center justify-center gap-1 hover:bg-rose-50 transition-colors"
-                    >
-                      <Plus size={16} /> 新增飯店
-                    </button>
-
+                    <button onClick={handleAddHotel} className="w-full py-2 border-2 border-dashed border-rose-200 text-rose-500 rounded-lg text-xs font-bold flex items-center justify-center gap-1 hover:bg-rose-50 transition-colors"><Plus size={16} /> 新增飯店</button>
                     <div className="flex gap-2 pt-2 border-t border-rose-100">
-                      <button onClick={handleSaveHotels} className="flex-1 bg-rose-500 text-white py-2 rounded-lg text-sm font-bold flex justify-center items-center gap-1 hover:bg-rose-600 transition-colors">
-                        <Save size={16} /> 儲存住宿
-                      </button>
-                      <button onClick={() => setIsEditingHotels(false)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors">
-                        取消
-                      </button>
+                      <button onClick={handleSaveHotels} className="flex-1 bg-rose-500 text-white py-2 rounded-lg text-sm font-bold flex justify-center items-center gap-1 hover:bg-rose-600 transition-colors"><Save size={16} /> 儲存住宿</button>
+                      <button onClick={() => setIsEditingHotels(false)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors">取消</button>
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {hotels.map(h => (
                       <div key={h.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex gap-4">
-                        <div className="bg-rose-50 p-3 rounded-xl flex items-center justify-center text-rose-500 h-14 w-14 flex-shrink-0">
-                          <Bed size={24} />
-                        </div>
+                        <div className="bg-rose-50 p-3 rounded-xl flex items-center justify-center text-rose-500 h-14 w-14 flex-shrink-0"><Bed size={24} /></div>
                         <div className="flex-1">
                           <h3 className="font-bold text-gray-800 leading-tight">{h.name}</h3>
-                          <div className="text-xs text-gray-500 mt-2 flex items-center">
-                            <Calendar size={12} className="mr-1" /> 
-                            {h.checkIn} - {h.checkOut} <span className="ml-1 text-rose-500 font-medium">({h.nights}晚)</span>
-                          </div>
-                          <div className="text-xs text-gray-500 mt-1 flex items-start">
-                            <MapPin size={12} className="mr-1 mt-0.5 flex-shrink-0" /> 
-                            <span className="leading-tight">{h.address}</span>
-                          </div>
+                          <div className="text-xs text-gray-500 mt-2 flex items-center"><Calendar size={12} className="mr-1" /> {h.checkIn} - {h.checkOut} <span className="ml-1 text-rose-500 font-medium">({h.nights}晚)</span></div>
+                          <div className="text-xs text-gray-500 mt-1 flex items-start"><MapPin size={12} className="mr-1 mt-0.5 flex-shrink-0" /> <span className="leading-tight">{h.address}</span></div>
                         </div>
                       </div>
                     ))}
-                    {hotels.length === 0 && (
-                      <div className="text-center text-gray-400 py-6 bg-white rounded-xl border border-dashed border-gray-200 text-sm">
-                        目前尚無飯店資訊，點擊右上方編輯按鈕新增。
-                      </div>
-                    )}
                   </div>
                 )}
               </section>
-
-              <div className="pt-6 border-t border-gray-200 flex justify-center pb-6">
-                <button 
-                  onClick={handleResetData}
-                  className="text-xs text-gray-400 hover:text-red-500 flex items-center transition-colors"
-                >
-                  <RotateCcw size={14} className="mr-1" /> 恢復預設範例資料 (清除雲端儲存)
-                </button>
-              </div>
             </div>
           </div>
         );
       };
 
-      // 2. 準備 (注意事項與清單)
+      // 2. 準備 (注意事項與清單) - **所有人皆可編輯**
       const PrepTab = () => {
         const [newNote, setNewNote] = useState('');
         const [newPack, setNewPack] = useState('');
 
-        const addNote = () => {
-          if (newNote.trim()) {
-            setNotes([...notes, { id: Date.now(), text: newNote }]);
-            setNewNote('');
-          }
-        };
-
-        const addPack = () => {
-          if (newPack.trim()) {
-            setPacking([...packing, { id: Date.now(), text: newPack, packed: false }]);
-            setNewPack('');
-          }
-        };
-
+        const addNote = () => { if (newNote.trim()) { setNotes([...notes, { id: Date.now(), text: newNote }]); setNewNote(''); } };
+        const addPack = () => { if (newPack.trim()) { setPacking([...packing, { id: Date.now(), text: newPack, packed: false }]); setNewPack(''); } };
         const togglePack = (id) => setPacking(packing.map(item => item.id === id ? { ...item, packed: !item.packed } : item));
         const removeNote = (id) => setNotes(notes.filter(n => n.id !== id));
         const removePack = (id) => setPacking(packing.filter(p => p.id !== id));
 
         return (
-          <div className="h-full overflow-y-auto p-6 pb-8 space-y-8 bg-gray-50 animate-fade-in">
+          <div className="h-full overflow-y-auto p-6 pb-8 space-y-8 bg-gray-50 animate-fade-in relative">
             <section>
-              <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <span className="bg-indigo-100 text-indigo-600 p-1.5 rounded-lg"><Navigation size={20} /></span>
-                注意事項 / 事前準備
-              </h2>
+              <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2"><span className="bg-indigo-100 text-indigo-600 p-1.5 rounded-lg"><Navigation size={20} /></span> 注意事項 / 事前準備</h2>
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <ul className="divide-y divide-gray-100">
                   {notes.map((note, index) => (
                     <li key={note.id} className="p-4 flex justify-between items-start gap-3 hover:bg-gray-50 transition-colors">
                       <span className="text-indigo-500 font-bold mt-0.5">{index + 1}.</span>
                       <span className="flex-1 text-gray-700">{note.text}</span>
-                      <button onClick={() => removeNote(note.id)} className="text-gray-300 hover:text-red-500 transition-colors">
-                        <Trash2 size={18} />
-                      </button>
+                      <button onClick={() => removeNote(note.id)} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={18} /></button>
                     </li>
                   ))}
                 </ul>
                 <div className="p-3 bg-gray-50 border-t border-gray-100 flex gap-2">
-                  <input 
-                    type="text" 
-                    value={newNote}
-                    onChange={(e) => setNewNote(e.target.value)}
-                    placeholder="新增注意事項..." 
-                    className="flex-1 bg-white px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    onKeyPress={(e) => e.key === 'Enter' && addNote()}
-                  />
-                  <button onClick={addNote} className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition-colors">
-                    <Plus size={20} />
-                  </button>
+                  <input type="text" value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="新增注意事項..." className="flex-1 bg-white px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyPress={(e) => e.key === 'Enter' && addNote()} />
+                  <button onClick={addNote} className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition-colors"><Plus size={20} /></button>
                 </div>
               </div>
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <span className="bg-emerald-100 text-emerald-600 p-1.5 rounded-lg"><ListTodo size={20} /></span>
-                攜帶物品清單
-              </h2>
+              <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2"><span className="bg-emerald-100 text-emerald-600 p-1.5 rounded-lg"><ListTodo size={20} /></span> 攜帶物品清單</h2>
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <ul className="divide-y divide-gray-100">
                   {packing.map((item) => (
@@ -755,27 +690,14 @@
                       <button onClick={() => togglePack(item.id)} className={`flex-shrink-0 transition-colors ${item.packed ? 'text-emerald-500' : 'text-gray-300 hover:text-emerald-400'}`}>
                         {item.packed ? <CheckSquare size={24} /> : <Square size={24} />}
                       </button>
-                      <span className={`flex-1 transition-all ${item.packed ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
-                        {item.text}
-                      </span>
-                      <button onClick={() => removePack(item.id)} className="text-gray-300 hover:text-red-500 p-1">
-                        <Trash2 size={18} />
-                      </button>
+                      <span className={`flex-1 transition-all ${item.packed ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{item.text}</span>
+                      <button onClick={() => removePack(item.id)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={18} /></button>
                     </li>
                   ))}
                 </ul>
                 <div className="p-3 bg-gray-50 border-t border-gray-100 flex gap-2">
-                  <input 
-                    type="text" 
-                    value={newPack}
-                    onChange={(e) => setNewPack(e.target.value)}
-                    placeholder="新增物品..." 
-                    className="flex-1 bg-white px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    onKeyPress={(e) => e.key === 'Enter' && addPack()}
-                  />
-                  <button onClick={addPack} className="bg-emerald-600 text-white p-2 rounded-lg hover:bg-emerald-700 transition-colors">
-                    <Plus size={20} />
-                  </button>
+                  <input type="text" value={newPack} onChange={(e) => setNewPack(e.target.value)} placeholder="新增物品..." className="flex-1 bg-white px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" onKeyPress={(e) => e.key === 'Enter' && addPack()} />
+                  <button onClick={addPack} className="bg-emerald-600 text-white p-2 rounded-lg hover:bg-emerald-700 transition-colors"><Plus size={20} /></button>
                 </div>
               </div>
             </section>
@@ -789,29 +711,14 @@
         const [editForm, setEditForm] = useState({ date: '', title: '' });
         const [confirmDelete, setConfirmDelete] = useState(null);
 
-        const startEdit = (day) => {
-          setEditingDay(day.day);
-          setEditForm({ date: day.date, title: day.title });
-          setConfirmDelete(null);
-        };
-
-        const saveEdit = () => {
-          setSummary(summary.map(s => s.day === editingDay ? { ...s, date: editForm.date, title: editForm.title } : s));
-          setEditingDay(null);
-        };
-
+        const startEdit = (day) => { setEditingDay(day.day); setEditForm({ date: day.date, title: day.title }); setConfirmDelete(null); };
+        const saveEdit = () => { setSummary(summary.map(s => s.day === editingDay ? { ...s, date: editForm.date, title: editForm.title } : s)); setEditingDay(null); };
         const requestDelete = (dayNum) => setConfirmDelete(dayNum);
-        const executeDelete = (dayNum) => {
-          handleDeleteDay(dayNum);
-          setConfirmDelete(null);
-        };
+        const executeDelete = (dayNum) => { handleDeleteDay(dayNum); setConfirmDelete(null); };
 
         return (
-          <div className="h-full overflow-y-auto p-6 pb-8 bg-gray-50 animate-fade-in">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-              <CalendarDays className="text-indigo-600" />
-              旅程總表
-            </h2>
+          <div className="h-full overflow-y-auto p-6 pb-8 bg-gray-50 animate-fade-in relative">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2"><CalendarDays className="text-indigo-600" /> 旅程總表</h2>
             
             {summary.length === 0 ? (
               <div className="text-center text-gray-400 py-10">目前尚無安排天數</div>
@@ -820,27 +727,10 @@
                 {summary.map((day) => (
                   <div key={day.day} className="relative pl-6">
                     <div className="absolute w-4 h-4 bg-indigo-500 rounded-full -left-[9px] top-4 ring-4 ring-indigo-100"></div>
-                    
-                    {editingDay === day.day ? (
+                    {editingDay === day.day && isAdmin ? (
                       <div className="bg-white p-4 rounded-xl shadow-md border-2 border-indigo-300 animate-fade-in">
-                        <div className="mb-3">
-                          <label className="text-xs font-bold text-gray-500 mb-1 block">日期 (例如: 11/20 (一))</label>
-                          <input 
-                            type="text" 
-                            value={editForm.date} 
-                            onChange={e => setEditForm({...editForm, date: e.target.value})}
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          />
-                        </div>
-                        <div className="mb-4">
-                          <label className="text-xs font-bold text-gray-500 mb-1 block">行程總結標題</label>
-                          <input 
-                            type="text" 
-                            value={editForm.title} 
-                            onChange={e => setEditForm({...editForm, title: e.target.value})}
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          />
-                        </div>
+                        <div className="mb-3"><label className="text-xs font-bold text-gray-500 mb-1 block">日期 (例如: 11/20 (一))</label><input type="text" value={editForm.date} onChange={e => setEditForm({...editForm, date: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+                        <div className="mb-4"><label className="text-xs font-bold text-gray-500 mb-1 block">行程總結標題</label><input type="text" value={editForm.title} onChange={e => setEditForm({...editForm, title: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
                         <div className="flex gap-2">
                           <button onClick={saveEdit} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-bold">儲存</button>
                           <button onClick={() => setEditingDay(null)} className="flex-1 bg-gray-100 text-gray-600 py-2 rounded-lg text-sm font-bold">取消</button>
@@ -850,20 +740,16 @@
                       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 group transition-all hover:border-indigo-200">
                         <div className="flex justify-between items-start mb-1">
                           <div className="text-xs font-bold text-indigo-500 tracking-wider">DAY {day.day} • {day.date}</div>
-                          <div className="flex gap-1">
-                            <button onClick={() => startEdit(day)} className="text-gray-300 hover:text-indigo-500 p-1 transition-colors">
-                              <Pencil size={16} />
-                            </button>
-                            {confirmDelete === day.day ? (
-                              <button onClick={() => executeDelete(day.day)} className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded font-bold animate-pulse">
-                                確認刪除?
-                              </button>
-                            ) : (
-                              <button onClick={() => requestDelete(day.day)} className="text-gray-300 hover:text-red-500 p-1 transition-colors">
-                                <Trash2 size={16} />
-                              </button>
-                            )}
-                          </div>
+                          {isAdmin && (
+                            <div className="flex gap-1">
+                              <button onClick={() => startEdit(day)} className="text-gray-300 hover:text-indigo-500 p-1 transition-colors"><Pencil size={16} /></button>
+                              {confirmDelete === day.day ? (
+                                <button onClick={() => executeDelete(day.day)} className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded font-bold animate-pulse">確認刪除?</button>
+                              ) : (
+                                <button onClick={() => requestDelete(day.day)} className="text-gray-300 hover:text-red-500 p-1 transition-colors"><Trash2 size={16} /></button>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <h3 className="text-gray-800 font-medium">{day.title}</h3>
                       </div>
@@ -873,12 +759,11 @@
               </div>
             )}
 
-            <button 
-              onClick={handleAddDay}
-              className="mt-8 w-full py-3 border-2 border-dashed border-indigo-300 text-indigo-600 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-50 transition-colors"
-            >
-              <Plus size={20} /> 新增一天行程
-            </button>
+            {isAdmin && (
+              <button onClick={handleAddDay} className="mt-8 w-full py-3 border-2 border-dashed border-indigo-300 text-indigo-600 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-50 transition-colors">
+                <Plus size={20} /> 新增一天行程
+              </button>
+            )}
           </div>
         );
       };
@@ -888,15 +773,11 @@
         const [selectedDay, setSelectedDay] = useState(1);
         const [isAdding, setIsAdding] = useState(false);
         const [newAct, setNewAct] = useState({ time: '', title: '', desc: '', transportToNext: '', transportIcon: 'walk' });
-        
-        // 編輯既有行程的狀態
         const [editingActId, setEditingActId] = useState(null);
         const [editActData, setEditActData] = useState({ time: '', title: '', desc: '', transportToNext: '', transportIcon: 'walk' });
 
         useEffect(() => {
-          if (summary.length > 0 && !summary.find(s => s.day === selectedDay)) {
-            setSelectedDay(summary[0].day);
-          }
+          if (summary.length > 0 && !summary.find(s => s.day === selectedDay)) { setSelectedDay(summary[0].day); }
         }, [summary, selectedDay]);
 
         if (summary.length === 0) {
@@ -905,7 +786,6 @@
               <CalendarDays size={48} className="text-gray-300 mb-4" />
               <h2 className="text-xl font-bold text-gray-700 mb-2">尚未建立任何天數</h2>
               <p className="text-gray-500 text-sm mb-6">請先至「總表」頁面新增行程天數，再來規劃每日細流。</p>
-              <button onClick={() => setActiveTab('summary')} className="bg-indigo-600 text-white px-6 py-2 rounded-full font-bold">前往總表</button>
             </div>
           );
         }
@@ -915,7 +795,6 @@
 
         const handleAddActivity = () => {
           if (!newAct.title || !newAct.time) return;
-          
           const updatedItinerary = [...itinerary];
           const dayIndex = updatedItinerary.findIndex(d => d.day === currentSummary.day);
           const newActivityItem = { id: Date.now(), ...newAct };
@@ -936,47 +815,33 @@
           setItinerary(itinerary.map(d => d.day === dayId ? { ...d, activities: d.activities.filter(a => a.id !== actId) } : d));
         };
 
-        // 啟動編輯模式
-        const startEditActivity = (act) => {
-          setEditingActId(act.id);
-          setEditActData({ ...act });
-        };
-
-        // 儲存編輯結果
+        const startEditActivity = (act) => { setEditingActId(act.id); setEditActData({ ...act }); };
         const handleSaveEditActivity = () => {
           if (!editActData.title || !editActData.time) return;
-
           const updatedItinerary = [...itinerary];
           const dayIndex = updatedItinerary.findIndex(d => d.day === currentSummary.day);
-
           if (dayIndex !== -1) {
             const actIndex = updatedItinerary[dayIndex].activities.findIndex(a => a.id === editingActId);
             if (actIndex !== -1) {
               updatedItinerary[dayIndex].activities[actIndex] = { ...editActData, id: editingActId };
-              // 重新根據時間排序
               updatedItinerary[dayIndex].activities.sort((a, b) => a.time.localeCompare(b.time));
             }
           }
-
           setItinerary(updatedItinerary);
           setEditingActId(null);
         };
 
         return (
-          <div className="flex flex-col h-full bg-gray-50 animate-fade-in">
+          <div className="flex flex-col h-full bg-gray-50 animate-fade-in relative">
             <div className="bg-white px-4 py-3 shadow-sm z-10 sticky top-0 flex gap-2 overflow-x-auto no-scrollbar">
               {summary.map(day => (
                 <button
                   key={day.day}
                   onClick={() => setSelectedDay(day.day)}
                   className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-bold transition-all ${
-                    currentSummary.day === day.day 
-                      ? 'bg-indigo-600 text-white shadow-md' 
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    currentSummary.day === day.day ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                   }`}
-                >
-                  Day {day.day}
-                </button>
+                >Day {day.day}</button>
               ))}
             </div>
 
@@ -988,26 +853,19 @@
 
               <div className="space-y-0">
                 {currentDayData.activities.length === 0 ? (
-                  <div className="text-center text-gray-400 py-10 bg-white rounded-2xl border border-dashed border-gray-300">
-                    目前尚無安排行程
-                  </div>
+                  <div className="text-center text-gray-400 py-10 bg-white rounded-2xl border border-dashed border-gray-300">目前尚無安排行程</div>
                 ) : (
                   currentDayData.activities.map((act, index) => (
                     <div key={act.id} className="relative">
-                      
-                      {/* 判斷是否為編輯模式 */}
-                      {editingActId === act.id ? (
+                      {editingActId === act.id && isAdmin ? (
                         <div className="bg-white rounded-2xl p-4 shadow-md border-2 border-indigo-300 relative z-10 my-2 animate-fade-in">
-                          <h4 className="text-sm font-bold text-indigo-800 mb-3 flex items-center gap-1">
-                            <Pencil size={16} /> 編輯行程
-                          </h4>
+                          <h4 className="text-sm font-bold text-indigo-800 mb-3 flex items-center gap-1"><Pencil size={16} /> 編輯行程</h4>
                           <div className="space-y-3">
                             <div className="flex gap-3">
                               <input type="time" value={editActData.time} onChange={e => setEditActData({...editActData, time: e.target.value})} className="px-3 py-2 rounded-lg border border-gray-200 text-sm flex-shrink-0" required />
                               <input type="text" placeholder="地點 / 標題" value={editActData.title} onChange={e => setEditActData({...editActData, title: e.target.value})} className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 text-sm" required />
                             </div>
                             <textarea placeholder="活動簡介或備註..." value={editActData.desc} onChange={e => setEditActData({...editActData, desc: e.target.value})} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm resize-none h-20" />
-                            
                             <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                               <label className="text-xs font-bold text-gray-500 mb-2 block">前往下一個地點的交通方式 (選填)</label>
                               <div className="flex flex-col sm:flex-row gap-2">
@@ -1021,7 +879,6 @@
                                 <input type="text" placeholder="例如：搭乘地鐵轉乘公車 (約30分)" value={editActData.transportToNext} onChange={e => setEditActData({...editActData, transportToNext: e.target.value})} className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white" />
                               </div>
                             </div>
-
                             <div className="flex gap-2 pt-2">
                               <button onClick={handleSaveEditActivity} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors">儲存修改</button>
                               <button onClick={() => setEditingActId(null)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-300 transition-colors">取消</button>
@@ -1030,22 +887,16 @@
                         </div>
                       ) : (
                         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 relative z-10 flex gap-4 group">
-                          <div className="flex flex-col items-center">
-                            <div className="bg-indigo-50 text-indigo-700 font-bold px-2 py-1 rounded-md text-sm whitespace-nowrap">
-                              {act.time}
-                            </div>
-                          </div>
+                          <div className="flex flex-col items-center"><div className="bg-indigo-50 text-indigo-700 font-bold px-2 py-1 rounded-md text-sm whitespace-nowrap">{act.time}</div></div>
                           <div className="flex-1 pb-1">
                             <h3 className="text-lg font-bold text-gray-800 mb-1 flex justify-between items-start">
                               {act.title}
-                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => startEditActivity(act)} className="text-gray-300 hover:text-indigo-500 p-1">
-                                  <Pencil size={16} />
-                                </button>
-                                <button onClick={() => removeActivity(currentSummary.day, act.id)} className="text-gray-300 hover:text-red-500 p-1">
-                                  <Trash2 size={16} />
-                                </button>
-                              </div>
+                              {isAdmin && (
+                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button onClick={() => startEditActivity(act)} className="text-gray-300 hover:text-indigo-500 p-1"><Pencil size={16} /></button>
+                                  <button onClick={() => removeActivity(currentSummary.day, act.id)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={16} /></button>
+                                </div>
+                              )}
                             </h3>
                             {act.desc && <p className="text-gray-600 text-sm leading-relaxed mb-2">{act.desc}</p>}
                           </div>
@@ -1057,8 +908,7 @@
                           <div className="absolute left-[39px] top-0 bottom-0 w-0.5 bg-gray-200 z-0"></div>
                           {act.transportToNext && (
                             <div className="relative z-10 flex items-center gap-3 ml-8 bg-gray-100/80 w-fit px-3 py-1.5 rounded-full text-xs text-gray-600 border border-gray-200/50">
-                              <span className="text-indigo-500">{renderTransportIcon(act.transportIcon)}</span>
-                              {act.transportToNext}
+                              <span className="text-indigo-500">{renderTransportIcon(act.transportIcon)}</span>{act.transportToNext}
                             </div>
                           )}
                         </div>
@@ -1068,7 +918,7 @@
                 )}
               </div>
 
-              {isAdding ? (
+              {isAdding && isAdmin ? (
                 <div className="mt-6 bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
                   <h4 className="text-sm font-bold text-indigo-800 mb-3">新增行程節點</h4>
                   <div className="space-y-3">
@@ -1077,7 +927,6 @@
                       <input type="text" placeholder="地點 / 標題" value={newAct.title} onChange={e => setNewAct({...newAct, title: e.target.value})} className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 text-sm" required />
                     </div>
                     <textarea placeholder="活動簡介或備註..." value={newAct.desc} onChange={e => setNewAct({...newAct, desc: e.target.value})} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm resize-none h-20" />
-                    
                     <div className="bg-white p-3 rounded-lg border border-gray-200">
                       <label className="text-xs font-bold text-gray-500 mb-2 block">前往下一個地點的交通方式 (選填)</label>
                       <div className="flex flex-col sm:flex-row gap-2">
@@ -1091,7 +940,6 @@
                         <input type="text" placeholder="例如：搭乘地鐵轉乘公車 (約30分)" value={newAct.transportToNext} onChange={e => setNewAct({...newAct, transportToNext: e.target.value})} className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 text-sm" />
                       </div>
                     </div>
-
                     <div className="flex gap-2 pt-2">
                       <button onClick={handleAddActivity} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors">儲存行程</button>
                       <button onClick={() => setIsAdding(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-300 transition-colors">取消</button>
@@ -1099,55 +947,32 @@
                   </div>
                 </div>
               ) : (
-                <button 
-                  onClick={() => setIsAdding(true)}
-                  className="mt-6 w-full py-3 border-2 border-dashed border-indigo-300 text-indigo-600 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-50 transition-colors"
-                >
-                  <Plus size={20} /> 新增行程節點
-                </button>
+                isAdmin && (
+                  <button onClick={() => setIsAdding(true)} className="mt-6 w-full py-3 border-2 border-dashed border-indigo-300 text-indigo-600 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-50 transition-colors">
+                    <Plus size={20} /> 新增行程節點
+                  </button>
+                )
               )}
             </div>
           </div>
         );
       };
 
-      // --- 底部導覽列 ---
       const BottomNav = () => (
-        <div 
-          className="w-full bg-white border-t border-gray-200 flex justify-around items-center pt-2 z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] shrink-0"
-          style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}
-        >
+        <div className="w-full bg-white border-t border-gray-200 flex justify-around items-center pt-2 z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] shrink-0" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
           {[
             { id: 'home', icon: Home, label: '首頁' },
             { id: 'prep', icon: ListTodo, label: '準備' },
             { id: 'summary', icon: CalendarDays, label: '總表' },
             { id: 'itinerary', icon: Map, label: '細流' },
           ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex flex-col items-center justify-center w-full py-1 space-y-1 transition-colors ${
-                activeTab === tab.id ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'
-              }`}
-            >
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center justify-center w-full py-1 space-y-1 transition-colors ${activeTab === tab.id ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}>
               <tab.icon size={22} className={activeTab === tab.id ? 'stroke-[2.5px]' : ''} />
               <span className="text-[10px] font-medium">{tab.label}</span>
             </button>
           ))}
         </div>
       );
-
-      // 若資料尚未從雲端下載完成，顯示讀取畫面
-      if (!isDataLoaded) {
-        return (
-          <div className="w-full h-[100dvh] flex items-center justify-center bg-gray-100 font-sans text-gray-900">
-             <div className="flex flex-col items-center gap-4 text-indigo-600 bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100">
-                <Navigation size={40} className="animate-bounce" />
-                <p className="text-sm font-bold opacity-80 tracking-wider">正在同步您的雲端旅程...</p>
-             </div>
-          </div>
-        );
-      }
 
       return (
         <div className="w-full h-full flex items-center justify-center p-0 sm:p-4 font-sans text-gray-900 bg-gray-100">
