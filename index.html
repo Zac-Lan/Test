@@ -296,7 +296,7 @@
                 <button onClick={onGuest} type="button" className="w-full mt-2 py-3 bg-white border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
                   <User size={18} /> 以訪客身份進入
                 </button>
-                <p className="text-[10px] text-gray-400 mt-2">訪客僅能查看行程與打勾準備清單</p>
+                <p className="text-[10px] text-gray-400 mt-2">訪客可查看行程，並擁有專屬準備清單</p>
               </div>
             )}
           </div>
@@ -325,13 +325,18 @@
       const [summary, setSummary] = useState(initialSummary);
       const [itinerary, setItinerary] = useState(initialItinerary);
 
-      // (1) 身份驗證初始化 (強制使用匿名登入，避免 Email/Password 模組無權限問題)
+      const [isPublicDataLoaded, setIsPublicDataLoaded] = useState(false);
+      const [isPersonalDataLoaded, setIsPersonalDataLoaded] = useState(false);
+
+      // (1) 身份驗證初始化 (強制使用匿名登入)
       useEffect(() => {
         if (!isCloudAvailable) {
           setUser({ uid: 'local-user' });
           setAuthInitialized(true);
           setAppState('ready');
           setIsAdmin(true);
+          setIsPublicDataLoaded(true);
+          setIsPersonalDataLoaded(true);
           return;
         }
 
@@ -355,13 +360,16 @@
         return () => unsubscribe();
       }, []);
 
-      // (2) 載入公開共用的雲端資料，並判斷權限
+      // (2) 載入公開共用的雲端資料 (行程大綱)，並判斷權限
       useEffect(() => {
         if (!user || !isCloudAvailable) return;
         const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
         
         const unsubscribe = onSnapshot(sharedDocRef, (docSnap) => {
-          if (docSnap.metadata.hasPendingWrites) return; 
+          if (docSnap.metadata.hasPendingWrites) {
+            if (!isPublicDataLoaded) setIsPublicDataLoaded(true);
+            return; 
+          }
 
           if (docSnap.exists()) {
             const data = docSnap.data();
@@ -384,34 +392,67 @@
             setTrip(p => JSON.stringify(p) === JSON.stringify(data.trip) ? p : (data.trip || p));
             setFlight(p => JSON.stringify(p) === JSON.stringify(data.flight) ? p : (data.flight || p));
             setHotels(p => JSON.stringify(p) === JSON.stringify(data.hotels) ? p : (data.hotels || p));
-            setNotes(p => JSON.stringify(p) === JSON.stringify(data.notes) ? p : (data.notes || p));
-            setPacking(p => JSON.stringify(p) === JSON.stringify(data.packing) ? p : (data.packing || p));
             setSummary(p => JSON.stringify(p) === JSON.stringify(data.summary) ? p : (data.summary || p));
             setItinerary(p => JSON.stringify(p) === JSON.stringify(data.itinerary) ? p : (data.itinerary || p));
           } else {
             // 雲端無資料 -> 進入建立模式
             setAppState('setup');
           }
+          setIsPublicDataLoaded(true);
         }, (error) => {
-          console.error("雲端讀取錯誤:", error);
+          console.error("共用資料讀取錯誤:", error);
+          setIsPublicDataLoaded(true);
         });
 
         return () => unsubscribe();
       }, [user, guestMode]);
 
-      // (3) 自動背景存檔到雲端
+      // (2.5) 載入個人專屬的準備清單資料
+      useEffect(() => {
+        if (!user || !isCloudAvailable || (appState !== 'ready' && !guestMode)) return;
+        const personalDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'personal_prep');
+        
+        const unsubscribe = onSnapshot(personalDocRef, (docSnap) => {
+          if (docSnap.metadata.hasPendingWrites) {
+            if (!isPersonalDataLoaded) setIsPersonalDataLoaded(true);
+            return;
+          }
+
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setNotes(p => JSON.stringify(p) === JSON.stringify(data.notes) ? p : (data.notes || p));
+            setPacking(p => JSON.stringify(p) === JSON.stringify(data.packing) ? p : (data.packing || p));
+          } else {
+             // 若個人無資料，則載入初始預設清單
+             setNotes(initialNotes);
+             setPacking(initialPacking);
+          }
+          setIsPersonalDataLoaded(true);
+        }, (error) => {
+          console.error("個人資料讀取錯誤:", error);
+          setIsPersonalDataLoaded(true);
+        });
+
+        return () => unsubscribe();
+      }, [user, appState, guestMode]);
+
+      // (3) 自動背景存檔到雲端 (分離儲存邏輯)
       useEffect(() => {
         if (!user || appState !== 'ready' || !isCloudAvailable) return;
+        
         const timer = setTimeout(() => {
-          const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
+          // 如果是管理員，將行程資料存至公共路徑
+          if (isAdmin) {
+             const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
+             setDoc(sharedDocRef, { trip, flight, hotels, summary, itinerary }, { merge: true })
+               .catch(err => console.error("公共行程儲存錯誤:", err));
+          }
           
-          // 權限區分：Admin 可以存所有欄位，一般人只能存 notes 跟 packing
-          const dataToSave = isAdmin 
-            ? { trip, flight, hotels, notes, packing, summary, itinerary } 
-            : { notes, packing };
+          // 不管是不是管理員，準備清單都存至個人路徑
+          const personalDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'personal_prep');
+          setDoc(personalDocRef, { notes, packing }, { merge: true })
+            .catch(err => console.error("個人準備清單儲存錯誤:", err));
 
-          setDoc(sharedDocRef, dataToSave, { merge: true })
-            .catch(err => console.error("雲端儲存錯誤:", err));
         }, 1500);
 
         return () => clearTimeout(timer);
@@ -424,8 +465,14 @@
           adminIds: [user.uid],
           passcode: passcode,
           trip: initialTrip, flight: initialFlight, hotels: initialHotels,
-          notes: initialNotes, packing: initialPacking, summary: initialSummary, itinerary: initialItinerary
+          summary: initialSummary, itinerary: initialItinerary
         });
+        
+        const personalDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'personal_prep');
+        await setDoc(personalDocRef, {
+          notes: initialNotes, packing: initialPacking
+        });
+
         setIsAdmin(true);
         setAppState('ready');
       };
@@ -460,6 +507,8 @@
           setGuestMode(false);
           setIsAdmin(false);
           setAppState('loading');
+          setIsPublicDataLoaded(false);
+          setIsPersonalDataLoaded(false);
           if (isCloudAvailable) {
             await signOut(auth); // 觸發重新取得匿名 ID
             window.location.reload();
@@ -484,7 +533,7 @@
         return <AuthScreen appState={appState} onSetup={handleSetup} onLoginAdmin={handleLoginAdmin} onGuest={() => setGuestMode(true)} onResetPasscode={handleResetPasscode} />;
       }
 
-      if (!authInitialized || appState === 'loading') {
+      if (!authInitialized || appState === 'loading' || !isPublicDataLoaded || (appState === 'ready' && !isPersonalDataLoaded)) {
         return (
           <div className="w-full h-[100dvh] flex items-center justify-center bg-gray-100 font-sans text-gray-900">
              <div className="flex flex-col items-center gap-4 text-indigo-600 bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100">
@@ -802,7 +851,7 @@
         );
       };
 
-      // 2. 準備 (注意事項與清單) - **所有人皆可編輯**
+      // 2. 準備 (注意事項與清單) - **所有人皆可編輯自己的**
       const PrepTab = () => {
         const [newNote, setNewNote] = useState('');
         const [newPack, setNewPack] = useState('');
@@ -815,6 +864,10 @@
 
         return (
           <div className="h-full overflow-y-auto p-6 pb-8 space-y-8 bg-gray-50 animate-fade-in relative">
+            <div className="bg-indigo-50 border border-indigo-100 text-indigo-600 text-xs px-3 py-2 rounded-lg flex items-center shadow-sm">
+                <User size={14} className="mr-1.5" /> 這是您的個人專屬準備清單，不會與他人共用。
+            </div>
+
             <section>
               <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2"><span className="bg-indigo-100 text-indigo-600 p-1.5 rounded-lg"><Navigation size={20} /></span> 注意事項 / 事前準備</h2>
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
