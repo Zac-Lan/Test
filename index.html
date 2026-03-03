@@ -60,7 +60,7 @@
     // --- Firebase 雲端環境設定 ---
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signOut, signInWithEmailAndPassword, EmailAuthProvider, linkWithCredential, fetchSignInMethodsForEmail, createUserWithEmailAndPassword } from 'firebase/auth';
-    import { getFirestore, doc, onSnapshot, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+    import { getFirestore, doc, onSnapshot, setDoc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
 
     // 💡 GitHub Pages 部署請在此填入 Firebase 金鑰
     const myFirebaseConfig = {
@@ -467,7 +467,7 @@
         return () => unsubscribe();
       }, []);
 
-      // (2) 載入公開共用的雲端資料 (行程大綱)
+      // (2) 載入公開共用的雲端資料 (行程大綱 + 預設準備清單)
       useEffect(() => {
         if (!user || !isCloudAvailable) return;
         const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
@@ -519,19 +519,34 @@
         if (!user || !isCloudAvailable || !(isAdmin || guestMode)) return;
         const personalDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'personal_prep');
         
-        const unsubscribe = onSnapshot(personalDocRef, (docSnap) => {
+        const unsubscribe = onSnapshot(personalDocRef, async (docSnap) => {
           if (docSnap.metadata.hasPendingWrites) {
             if (!isPersonalDataLoaded) setIsPersonalDataLoaded(true);
             return;
           }
 
           if (docSnap.exists()) {
+            // 若有個人資料，載入個人資料
             const data = docSnap.data();
             setNotes(p => JSON.stringify(p) === JSON.stringify(data.notes) ? p : (data.notes || p));
             setPacking(p => JSON.stringify(p) === JSON.stringify(data.packing) ? p : (data.packing || p));
           } else {
-             setNotes(initialNotes);
-             setPacking(initialPacking);
+             // 若個人「無資料」(第一次登入)，去抓取管理員設定的「預設清單」
+             try {
+                const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
+                const sharedSnap = await getDoc(sharedDocRef);
+                if (sharedSnap.exists() && sharedSnap.data().defaultNotes && sharedSnap.data().defaultPacking) {
+                    setNotes(sharedSnap.data().defaultNotes);
+                    setPacking(sharedSnap.data().defaultPacking);
+                } else {
+                    setNotes(initialNotes);
+                    setPacking(initialPacking);
+                }
+             } catch(e) {
+                console.error("抓取預設清單失敗，使用本地預設值");
+                setNotes(initialNotes);
+                setPacking(initialPacking);
+             }
           }
           setIsPersonalDataLoaded(true);
         }, (error) => {
@@ -547,12 +562,17 @@
         if (!user || !(isAdmin || guestMode) || !isCloudAvailable) return;
         
         const timer = setTimeout(() => {
+          // 如果是管理員，將行程資料存至公共路徑，同時將目前的清單作為「預設清單」存入公共路徑
           if (isAdmin) {
              const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
-             setDoc(sharedDocRef, { trip, flight, hotels, summary, itinerary }, { merge: true })
+             setDoc(sharedDocRef, { 
+                trip, flight, hotels, summary, itinerary,
+                defaultNotes: notes, defaultPacking: packing 
+             }, { merge: true })
                .catch(err => console.error("公共行程儲存錯誤:", err));
           }
           
+          // 不管是不是管理員，當前看到的準備清單都存至個人路徑
           const personalDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'personal_prep');
           setDoc(personalDocRef, { notes, packing }, { merge: true })
             .catch(err => console.error("個人準備清單儲存錯誤:", err));
@@ -577,7 +597,8 @@
           adminIds: [user.uid],
           passcode: passcode,
           trip: initialTrip, flight: initialFlight, hotels: initialHotels,
-          summary: initialSummary, itinerary: initialItinerary
+          summary: initialSummary, itinerary: initialItinerary,
+          defaultNotes: initialNotes, defaultPacking: initialPacking // 初始預設清單
         });
         
         const personalDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'personal_prep');
@@ -984,6 +1005,12 @@
             <div className="bg-indigo-50 border border-indigo-100 text-indigo-600 text-xs px-3 py-2 rounded-lg flex items-center shadow-sm">
                 <User size={14} className="mr-1.5" /> 這是您的個人專屬準備清單，不會與他人共用。
             </div>
+            
+            {isAdmin && (
+              <div className="bg-emerald-50 border border-emerald-100 text-emerald-600 text-xs px-3 py-2 rounded-lg flex items-center shadow-sm">
+                  <Pencil size={14} className="mr-1.5" /> 您所做的修改，將成為其他訪客首次登入時的「預設清單」。
+              </div>
+            )}
 
             <section>
               <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2"><span className="bg-indigo-100 text-indigo-600 p-1.5 rounded-lg"><Navigation size={20} /></span> 注意事項 / 事前準備</h2>
