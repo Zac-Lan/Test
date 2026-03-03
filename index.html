@@ -237,14 +237,14 @@
         try {
           // 先嘗試登入
           try {
-             await signInWithEmailAndPassword(auth, virtualEmail, defaultPassword);
-             onGuest();
+             const userCredential = await signInWithEmailAndPassword(auth, virtualEmail, defaultPassword);
+             onGuest(userCredential.user.uid);
           } catch(loginErr) {
              // 如果登入失敗，判斷是否為無此帳號，如果是則自動註冊新帳號
              if (loginErr.code === 'auth/user-not-found' || loginErr.code === 'auth/invalid-credential' || loginErr.code === 'auth/invalid-login-credentials') {
                 try {
-                  await createUserWithEmailAndPassword(auth, virtualEmail, defaultPassword);
-                  onGuest();
+                  const userCredential = await createUserWithEmailAndPassword(auth, virtualEmail, defaultPassword);
+                  onGuest(userCredential.user.uid);
                 } catch (createErr) {
                    if(createErr.code === 'auth/email-already-in-use') {
                      setError("此帳號名稱已被使用，請更換一個");
@@ -376,7 +376,7 @@
                     <button onClick={() => {setEmailMode('username'); setError('');}} type="button" className="w-full py-3 bg-indigo-50 text-indigo-600 rounded-xl font-bold hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 text-sm">
                       <User size={18} /> 使用自訂帳號進入
                     </button>
-                    <button onClick={onGuest} type="button" className="w-full py-3 bg-white border border-gray-200 text-gray-500 rounded-xl font-bold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 text-sm">
+                    <button onClick={() => onGuest()} type="button" className="w-full py-3 bg-white border border-gray-200 text-gray-500 rounded-xl font-bold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 text-sm">
                       免登入，以匿名訪客進入
                     </button>
                   </div>
@@ -415,6 +415,7 @@
       // 使用 Session Storage 記憶使用者的模式選擇與登出狀態，防重整跳回登入
       const [hasLoggedOut, setHasLoggedOut] = useState(() => sessionStorage.getItem('travel_app_logged_out') === 'true');
       const [guestMode, setGuestMode] = useState(() => sessionStorage.getItem('travel_app_guest_mode') === 'true');
+      const [sessionUid, setSessionUid] = useState(() => sessionStorage.getItem('travel_app_session_uid'));
       
       // 應用程式狀態：loading(讀取中), setup(首次建立), login(登入/訪客選擇), ready(進入App)
       const [appState, setAppState] = useState('loading'); 
@@ -467,7 +468,7 @@
         return () => unsubscribe();
       }, []);
 
-      // (2) 載入公開共用的雲端資料 (行程大綱 + 預設準備清單)
+      // (2) 載入公開共用的雲端資料 (行程大綱)
       useEffect(() => {
         if (!user || !isCloudAvailable) return;
         const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
@@ -485,10 +486,12 @@
             const admins = data.adminIds || [];
             
             // 核心判定邏輯：嚴格區分「手動選擇訪客」與「登出狀態」
+            const currentUid = sessionUid || user.uid;
+            
             if (guestMode) {
               setIsAdmin(false);
               setAppState('ready');
-            } else if (admins.includes(user.uid) && !hasLoggedOut) {
+            } else if (admins.includes(currentUid) && !hasLoggedOut) {
               setIsAdmin(true);
               setAppState('ready');
             } else {
@@ -512,12 +515,14 @@
         });
 
         return () => unsubscribe();
-      }, [user, guestMode, hasLoggedOut]);
+      }, [user, guestMode, hasLoggedOut, sessionUid]);
 
-      // (2.5) 載入個人專屬的準備清單資料
+      // (2.5) 載入個人專屬的準備清單資料 (依賴不變的 user.uid 或 sessionUid)
       useEffect(() => {
-        if (!user || !isCloudAvailable || !(isAdmin || guestMode)) return;
-        const personalDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'personal_prep');
+        const currentUid = sessionUid || user?.uid;
+        if (!currentUid || !isCloudAvailable || !(isAdmin || guestMode)) return;
+        
+        const personalDocRef = doc(db, 'artifacts', appId, 'users', currentUid, 'travel_app_data', 'personal_prep');
         
         const unsubscribe = onSnapshot(personalDocRef, async (docSnap) => {
           if (docSnap.metadata.hasPendingWrites) {
@@ -555,11 +560,12 @@
         });
 
         return () => unsubscribe();
-      }, [user, isAdmin, guestMode]);
+      }, [user, isAdmin, guestMode, sessionUid]);
 
       // (3) 自動背景存檔到雲端 (分離儲存邏輯)
       useEffect(() => {
-        if (!user || !(isAdmin || guestMode) || !isCloudAvailable) return;
+        const currentUid = sessionUid || user?.uid;
+        if (!currentUid || !(isAdmin || guestMode) || !isCloudAvailable) return;
         
         const timer = setTimeout(() => {
           // 如果是管理員，將行程資料存至公共路徑，同時將目前的清單作為「預設清單」存入公共路徑
@@ -572,21 +578,25 @@
                .catch(err => console.error("公共行程儲存錯誤:", err));
           }
           
-          // 不管是不是管理員，當前看到的準備清單都存至個人路徑
-          const personalDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'personal_prep');
+          // 不論是管理員還是訪客，目前的準備清單都存至個人路徑
+          const personalDocRef = doc(db, 'artifacts', appId, 'users', currentUid, 'travel_app_data', 'personal_prep');
           setDoc(personalDocRef, { notes, packing }, { merge: true })
             .catch(err => console.error("個人準備清單儲存錯誤:", err));
 
         }, 1500);
 
         return () => clearTimeout(timer);
-      }, [trip, flight, hotels, notes, packing, summary, itinerary, user, isAdmin, guestMode]);
+      }, [trip, flight, hotels, notes, packing, summary, itinerary, user, isAdmin, guestMode, sessionUid]);
 
       // --- 登入控制函式 ---
       
-      const enterGuestMode = () => {
+      const enterGuestMode = (uid = null) => {
         sessionStorage.setItem('travel_app_guest_mode', 'true');
         sessionStorage.removeItem('travel_app_logged_out');
+        if (uid) {
+            sessionStorage.setItem('travel_app_session_uid', uid);
+            setSessionUid(uid);
+        }
         setGuestMode(true);
         setHasLoggedOut(false);
       };
@@ -608,6 +618,8 @@
 
         sessionStorage.removeItem('travel_app_logged_out');
         sessionStorage.removeItem('travel_app_guest_mode');
+        sessionStorage.removeItem('travel_app_session_uid');
+        setSessionUid(null);
         setHasLoggedOut(false);
         setGuestMode(false);
         setIsAdmin(true);
@@ -622,6 +634,8 @@
           });
           sessionStorage.removeItem('travel_app_logged_out');
           sessionStorage.removeItem('travel_app_guest_mode');
+          sessionStorage.removeItem('travel_app_session_uid');
+          setSessionUid(null);
           setHasLoggedOut(false);
           setGuestMode(false);
           setIsAdmin(true);
@@ -640,11 +654,13 @@
           setDbPasscode(newPasscode);
       }
 
-      // 登出 (記憶在 Session，保護個人清單 UID)
+      // 登出 (記憶在 Session)
       const handleLogout = () => {
         if (window.confirm("確定要登出並返回首頁嗎？(您的專屬清單會安全保留在設備或帳號中)")) {
           sessionStorage.setItem('travel_app_logged_out', 'true');
           sessionStorage.removeItem('travel_app_guest_mode');
+          sessionStorage.removeItem('travel_app_session_uid');
+          setSessionUid(null);
           setHasLoggedOut(true);
           setGuestMode(false);
           setIsAdmin(false);
@@ -736,7 +752,7 @@
             {/* 帳號與權限狀態標籤 */}
             <div className="absolute top-4 left-4 z-50 flex items-center bg-black/40 backdrop-blur px-3 py-1.5 rounded-full text-white/90 text-xs font-medium border border-white/20 shadow-md">
               {isAdmin ? (
-                <><span className="w-2 h-2 rounded-full bg-emerald-400 mr-2 shadow-[0_0_5px_rgba(52,211,153,0.8)]"></span> 管理員模式 {user?.email && `(${user.email.split('@')[0]})`}</>
+                <><span className="w-2 h-2 rounded-full bg-emerald-400 mr-2 shadow-[0_0_5px_rgba(52,211,153,0.8)]"></span> 管理員模式</>
               ) : (
                 <><span className="w-2 h-2 rounded-full bg-amber-400 mr-2 shadow-[0_0_5px_rgba(251,191,36,0.8)]"></span> 訪客 {user?.email ? `(${user.email.split('@')[0]})` : '(匿名)'}</>
               )}
