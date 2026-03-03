@@ -59,7 +59,7 @@
 
     // --- Firebase 雲端環境設定 ---
     import { initializeApp } from 'firebase/app';
-    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signOut, signInWithEmailAndPassword, EmailAuthProvider, linkWithCredential, fetchSignInMethodsForEmail } from 'firebase/auth';
+    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signOut, signInWithEmailAndPassword, EmailAuthProvider, linkWithCredential, fetchSignInMethodsForEmail, createUserWithEmailAndPassword } from 'firebase/auth';
     import { getFirestore, doc, onSnapshot, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 
     // 💡 GitHub Pages 部署請在此填入 Firebase 金鑰
@@ -107,13 +107,19 @@
     ];
 
     const initialNotes = [
-      { id: 1, text: "確認台胞證效期，並辦理好網卡或漫遊" },
-      { id: 2, text: "下載並綁定好支付寶 (Alipay) 或微信支付" }
+      { id: 1, text: "確認台胞證效期" },
+      { id: 2, text: "下載並綁定好支付寶 (Alipay) 或微信支付" },
+      { id: 3, text: "購買旅平險 / 旅遊不便險" },
+      { id: 4, text: "電子產品放置於*手提*行李中" }
     ];
 
     const initialPacking = [
-      { id: 1, text: "護照與台胞證", packed: false },
-      { id: 2, text: "行動電源 & 充電線", packed: true }
+      { id: 1, text: "台胞證*及*護照 (兩者皆須攜帶)", packed: false },
+      { id: 2, text: "五天六夜換洗衣物", packed: false },
+      { id: 3, text: "毛巾", packed: false },
+      { id: 4, text: "盥洗用品", packed: false },
+      { id: 5, text: "充電器", packed: false },
+      { id: 6, text: "行動電源 (須放置於隨身行李)", packed: false }
     ];
 
     const initialSummary = [
@@ -217,7 +223,7 @@
         setError('');
         setLoading(true);
         
-        // 驗證自訂帳號格式 (例如只能是英數字，至少3碼)
+        // 驗證自訂帳號格式
         if (username.length < 3 || !/^[a-zA-Z0-9_]+$/.test(username)) {
            setError("帳號必須為3碼以上的英文字母、數字或底線");
            setLoading(false);
@@ -234,26 +240,30 @@
              await signInWithEmailAndPassword(auth, virtualEmail, defaultPassword);
              onGuest();
           } catch(loginErr) {
-             // 如果登入失敗，判斷是否為無此帳號，如果是則自動註冊並綁定
+             // 如果登入失敗，判斷是否為無此帳號，如果是則自動註冊新帳號
              if (loginErr.code === 'auth/user-not-found' || loginErr.code === 'auth/invalid-credential' || loginErr.code === 'auth/invalid-login-credentials') {
                 try {
-                  const credential = EmailAuthProvider.credential(virtualEmail, defaultPassword);
-                  await linkWithCredential(auth.currentUser, credential);
+                  await createUserWithEmailAndPassword(auth, virtualEmail, defaultPassword);
                   onGuest();
-                } catch (linkErr) {
-                   if(linkErr.code === 'auth/credential-already-in-use') {
-                     // 處理極端情況：帳號已被其他方式註冊，但密碼不同
-                     setError("此帳號已被使用，請更換一個名稱");
+                } catch (createErr) {
+                   if(createErr.code === 'auth/email-already-in-use') {
+                     setError("此帳號名稱已被使用，請更換一個");
+                   } else if (createErr.code === 'auth/operation-not-allowed') {
+                     setError("請至 Firebase 後台啟用「電子郵件/密碼」登入功能！");
                    } else {
-                     throw linkErr;
+                     setError("建立帳號失敗，請稍後再試");
+                     console.error("Create User Error:", createErr);
                    }
                 }
+             } else if (loginErr.code === 'auth/operation-not-allowed') {
+                 setError("請至 Firebase 後台啟用「電子郵件/密碼」登入功能！");
              } else {
-                 throw loginErr; // 拋出其他預期外錯誤
+                 setError("登入發生錯誤，請稍後再試");
+                 console.error("Login Error:", loginErr);
              }
           }
         } catch (err) {
-          setError("發生錯誤，請稍後再試");
+          setError("發生未知錯誤，請稍後再試");
           console.error(err);
         } finally {
           setLoading(false);
@@ -402,10 +412,13 @@
       const [user, setUser] = useState(null);
       const [authInitialized, setAuthInitialized] = useState(false);
       
+      // 使用 Session Storage 記憶使用者的模式選擇與登出狀態，防重整跳回登入
+      const [hasLoggedOut, setHasLoggedOut] = useState(() => sessionStorage.getItem('travel_app_logged_out') === 'true');
+      const [guestMode, setGuestMode] = useState(() => sessionStorage.getItem('travel_app_guest_mode') === 'true');
+      
       // 應用程式狀態：loading(讀取中), setup(首次建立), login(登入/訪客選擇), ready(進入App)
       const [appState, setAppState] = useState('loading'); 
       const [isAdmin, setIsAdmin] = useState(false);
-      const [guestMode, setGuestMode] = useState(false);
       const [dbPasscode, setDbPasscode] = useState('');
 
       const [trip, setTrip] = useState(initialTrip);
@@ -422,12 +435,12 @@
       // 將 selectedDay 提升到 App 層級
       const [selectedItineraryDay, setSelectedItineraryDay] = useState(1);
 
-      // (1) 身份驗證初始化 (強制使用匿名登入，永不呼叫 signOut，藉此保留個人清單)
+      // (1) 身份驗證初始化
       useEffect(() => {
         if (!isCloudAvailable) {
           setUser({ uid: 'local-user' });
           setAuthInitialized(true);
-          setAppState('loaded');
+          setAppState('ready');
           setIsAdmin(true);
           setIsPublicDataLoaded(true);
           setIsPersonalDataLoaded(true);
@@ -471,17 +484,16 @@
 
             const admins = data.adminIds || [];
             
-            // 判斷當前使用者是否為管理員
-            if (admins.includes(user.uid)) {
+            // 核心判定邏輯：嚴格區分「手動選擇訪客」與「登出狀態」
+            if (guestMode) {
+              setIsAdmin(false);
+              setAppState('ready');
+            } else if (admins.includes(user.uid) && !hasLoggedOut) {
               setIsAdmin(true);
               setAppState('ready');
             } else {
               setIsAdmin(false);
-              if (guestMode) {
-                setAppState('ready');
-              } else {
-                setAppState('login');
-              }
+              setAppState('login');
             }
 
             setTrip(p => JSON.stringify(p) === JSON.stringify(data.trip) ? p : (data.trip || p));
@@ -500,9 +512,9 @@
         });
 
         return () => unsubscribe();
-      }, [user, guestMode]);
+      }, [user, guestMode, hasLoggedOut]);
 
-      // (2.5) 載入個人專屬的準備清單資料 (依賴不變的 user.uid)
+      // (2.5) 載入個人專屬的準備清單資料
       useEffect(() => {
         if (!user || !isCloudAvailable || !(isAdmin || guestMode)) return;
         const personalDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'personal_prep');
@@ -518,7 +530,6 @@
             setNotes(p => JSON.stringify(p) === JSON.stringify(data.notes) ? p : (data.notes || p));
             setPacking(p => JSON.stringify(p) === JSON.stringify(data.packing) ? p : (data.packing || p));
           } else {
-             // 若個人無資料，則載入初始預設清單
              setNotes(initialNotes);
              setPacking(initialPacking);
           }
@@ -536,14 +547,12 @@
         if (!user || !(isAdmin || guestMode) || !isCloudAvailable) return;
         
         const timer = setTimeout(() => {
-          // 如果是管理員，將行程資料存至公共路徑
           if (isAdmin) {
              const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
              setDoc(sharedDocRef, { trip, flight, hotels, summary, itinerary }, { merge: true })
                .catch(err => console.error("公共行程儲存錯誤:", err));
           }
           
-          // 不管是不是管理員，準備清單都存至個人路徑
           const personalDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'travel_app_data', 'personal_prep');
           setDoc(personalDocRef, { notes, packing }, { merge: true })
             .catch(err => console.error("個人準備清單儲存錯誤:", err));
@@ -553,7 +562,15 @@
         return () => clearTimeout(timer);
       }, [trip, flight, hotels, notes, packing, summary, itinerary, user, isAdmin, guestMode]);
 
-      // 首次建立旅程設定密碼
+      // --- 登入控制函式 ---
+      
+      const enterGuestMode = () => {
+        sessionStorage.setItem('travel_app_guest_mode', 'true');
+        sessionStorage.removeItem('travel_app_logged_out');
+        setGuestMode(true);
+        setHasLoggedOut(false);
+      };
+
       const handleSetup = async (passcode) => {
         const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
         await setDoc(sharedDocRef, {
@@ -568,17 +585,24 @@
           notes: initialNotes, packing: initialPacking
         });
 
+        sessionStorage.removeItem('travel_app_logged_out');
+        sessionStorage.removeItem('travel_app_guest_mode');
+        setHasLoggedOut(false);
+        setGuestMode(false);
         setIsAdmin(true);
         setAppState('ready');
       };
 
-      // 輸入密碼登入為管理員
       const handleLoginAdmin = async (inputPasscode) => {
         if (inputPasscode === dbPasscode) {
           const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
           await updateDoc(sharedDocRef, {
             adminIds: arrayUnion(user.uid)
           });
+          sessionStorage.removeItem('travel_app_logged_out');
+          sessionStorage.removeItem('travel_app_guest_mode');
+          setHasLoggedOut(false);
+          setGuestMode(false);
           setIsAdmin(true);
           setAppState('ready');
         } else {
@@ -586,7 +610,6 @@
         }
       };
 
-      // 處理重設密碼
       const handleResetPasscode = async (newPasscode) => {
           if (!isCloudAvailable) return;
           const sharedDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'travel_app_data', 'main_trip');
@@ -596,9 +619,12 @@
           setDbPasscode(newPasscode);
       }
 
-      // 登出 (僅清除 React 身分狀態，不銷毀 Firebase，以保留個人清單及 Email 登入狀態)
+      // 登出 (記憶在 Session，保護個人清單 UID)
       const handleLogout = () => {
         if (window.confirm("確定要登出並返回首頁嗎？(您的專屬清單會安全保留在設備或帳號中)")) {
+          sessionStorage.setItem('travel_app_logged_out', 'true');
+          sessionStorage.removeItem('travel_app_guest_mode');
+          setHasLoggedOut(true);
           setGuestMode(false);
           setIsAdmin(false);
           setIsPersonalDataLoaded(false);
@@ -627,8 +653,8 @@
         return <AuthScreen appState="setup" onSetup={handleSetup} onResetPasscode={handleResetPasscode} />;
       }
 
-      if (!isAdmin && !guestMode) {
-        return <AuthScreen appState="login" onLoginAdmin={handleLoginAdmin} onGuest={() => setGuestMode(true)} onResetPasscode={handleResetPasscode} />;
+      if (appState === 'login' && !isAdmin && !guestMode) {
+        return <AuthScreen appState="login" onLoginAdmin={handleLoginAdmin} onGuest={enterGuestMode} onResetPasscode={handleResetPasscode} />;
       }
 
       if (!isPersonalDataLoaded) {
